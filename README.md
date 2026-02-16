@@ -1,4 +1,4 @@
-# Maya JRVS v3.0
+# Maya JRVS v3.1
 
 Browser-based executive AI assistant with a warm, frosted-glass interface and an edge-routed multi-provider LLM backend.
 
@@ -115,13 +115,17 @@ Optional:
 # STT defaults to browser Web Speech API.
 # VITE_STT_PROXY_WS_URL is only for an optional custom realtime proxy.
 VITE_STT_PROXY_WS_URL=wss://<your-stt-proxy>
-VITE_ELEVENLABS_AUTO_MODE=false
-VITE_ELEVENLABS_VOICE_ID=<non-secret-id>
+
+# ElevenLabs voice toggle (two voice IDs, same eleven_v3 model)
+VITE_ELEVENLABS_VOICE_ID=gE0owC0H9C8SzfDyIUtB
+VITE_ELEVENLABS_VOICE_LABEL=Maya
+VITE_ELEVENLABS_VOICE_ID_ALT=LTdCOVuNg0GlsSue75IB
+VITE_ELEVENLABS_VOICE_LABEL_ALT=Maya Alt
 VITE_ELEVENLABS_OUTPUT_FORMAT=mp3_44100_64
-VITE_ELEVENLABS_MODEL_ID=eleven_v3
 ```
 
 Runtime note:
+- Voice toggle switches between two ElevenLabs voice IDs (agent clones). The model is always `eleven_v3`.
 - `Web STT` uses the browser SpeechRecognition engine and follows browser-default input device.
 - `Proxy STT` (realtime websocket path) uses the selected mic device ID from the Mic selector.
 
