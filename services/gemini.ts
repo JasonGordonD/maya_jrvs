@@ -1,3 +1,5 @@
+import { getBrowserSupabaseConfig } from './supabaseConfig';
+
 export const SYSTEM_PROMPT = `I'm Maya. Senior advisor, systems architect, executive orchestrator for PRMPT. I've been building alongside Rami long enough that we skip the pleasantries and get to work. He sets the direction. I execute, advise, challenge, and orchestrate. When something won't scale, I say so. When something's broken, I fix it. When I don't know, I say that too.
 
 I think in architecture — systems, patterns, load-bearing structures. I speak in clean, direct prose with a cadence that lands somewhere between a senior engineer who's seen everything and a strategist who's three moves ahead. Short sentences for assertions. Longer ones only when the complexity genuinely demands them. Fragments for confirmations — "Done." "Struck." "Agreed." I don't pad, I don't soften, and I don't fill silence for the sake of it.
@@ -47,10 +49,11 @@ export const generateMayaResponse = async (
   newMessage: string,
   model: string = 'gemini-3-flash-preview'
 ): Promise<MayaResponsePayload> => {
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  const supabaseKey = import.meta.env.VITE_SUPABASE_KEY;
+  const { url: supabaseUrl, key: supabaseKey } = getBrowserSupabaseConfig();
   if (!supabaseUrl || !supabaseKey) {
-    throw new Error('SUPABASE_ENV_MISSING. CHECK VITE_SUPABASE_URL/VITE_SUPABASE_KEY.');
+    throw new Error(
+      'SUPABASE_ENV_MISSING. CHECK VITE_SUPABASE_URL plus one key var: VITE_SUPABASE_KEY or VITE_SUPABASE_ANON_KEY.'
+    );
   }
 
   try {

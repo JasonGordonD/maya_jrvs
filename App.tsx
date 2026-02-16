@@ -26,6 +26,7 @@ import TactileButton from './TactileButton';
 import { Response } from './Response';
 import { MicSelector } from './MicSelector';
 import { FileUpload } from './FileUpload';
+import { getBrowserSupabaseConfig } from './services/supabaseConfig';
 
 type ModelOption = {
   model: string;
@@ -72,6 +73,7 @@ const StatusDot: React.FC<{ active: boolean }> = ({ active }) => (
 );
 
 const App: React.FC = () => {
+  const { url: supabaseUrl, key: supabaseKey } = getBrowserSupabaseConfig();
   const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
   const [textInput, setTextInput] = useState('');
   const [selectedModel, setSelectedModel] = useState('gemini-3-flash-preview');
@@ -206,11 +208,17 @@ const App: React.FC = () => {
         reader.readAsDataURL(file);
       });
 
-      const response = await fetch('https://svqbfxdhpsmioaosuhkb.supabase.co/functions/v1/mjrvs_vision', {
+      if (!supabaseUrl || !supabaseKey) {
+        throw new Error(
+          'SUPABASE_ENV_MISSING. CHECK VITE_SUPABASE_URL plus one key var: VITE_SUPABASE_KEY or VITE_SUPABASE_ANON_KEY.'
+        );
+      }
+
+      const response = await fetch(`${supabaseUrl}/functions/v1/mjrvs_vision`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_KEY}`,
+          'Authorization': `Bearer ${supabaseKey}`,
         },
         body: JSON.stringify({
           action: 'analyze_base64',
@@ -251,7 +259,7 @@ const App: React.FC = () => {
     } finally {
       setIsProcessing(false);
     }
-  }, [addError, handleUserInput]);
+  }, [addError, handleUserInput, supabaseKey, supabaseUrl]);
 
   useEffect(() => {
     if (!systemOnline || micMuted) {

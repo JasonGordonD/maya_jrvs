@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { getBrowserSupabaseConfig } from '../services/supabaseConfig';
 
 export type TTSEngine = 'ELEVEN_LABS' | 'WEB_NATIVE';
 
@@ -91,11 +92,12 @@ export const useElevenLabs = () => {
           const voiceId = import.meta.env.VITE_ELEVENLABS_VOICE_ID || "gE0owC0H9C8SzfDyIUtB";
           const outputFormat = import.meta.env.VITE_ELEVENLABS_OUTPUT_FORMAT || "mp3_44100_64";
           const modelId = import.meta.env.VITE_ELEVENLABS_MODEL_ID || "eleven_v3";
-          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-          const supabaseKey = import.meta.env.VITE_SUPABASE_KEY;
+          const { url: supabaseUrl, key: supabaseKey } = getBrowserSupabaseConfig();
 
           if (!supabaseUrl || !supabaseKey) {
-            throw new Error("Missing VITE_SUPABASE_URL or VITE_SUPABASE_KEY for TTS proxy.");
+            throw new Error(
+              "Missing Supabase browser env for TTS proxy. Set VITE_SUPABASE_URL and VITE_SUPABASE_KEY or VITE_SUPABASE_ANON_KEY."
+            );
           }
 
           // TODO: Deploy/enable mjrvs_tts edge function proxy for ElevenLabs server-side key usage.

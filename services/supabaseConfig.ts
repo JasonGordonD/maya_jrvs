@@ -1,0 +1,34 @@
+type MaybeString = string | undefined;
+
+const pickFirstNonEmpty = (...values: MaybeString[]): string => {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return '';
+};
+
+export type BrowserSupabaseConfig = {
+  url: string;
+  key: string;
+};
+
+export const getBrowserSupabaseConfig = (): BrowserSupabaseConfig => {
+  const env = import.meta.env;
+
+  const url = pickFirstNonEmpty(
+    env.VITE_SUPABASE_URL,
+    env.VITE_PUBLIC_SUPABASE_URL,
+    env.VITE_NEXT_PUBLIC_SUPABASE_URL
+  );
+
+  const key = pickFirstNonEmpty(
+    env.VITE_SUPABASE_KEY,
+    env.VITE_SUPABASE_ANON_KEY,
+    env.VITE_PUBLIC_SUPABASE_ANON_KEY,
+    env.VITE_NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
+
+  return { url, key };
+};

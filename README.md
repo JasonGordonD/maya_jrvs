@@ -57,7 +57,7 @@ Unified response:
 - Browser no longer calls LLM providers directly.
 - Browser no longer sends provider API keys.
 - Provider keys are read in edge runtime via `Deno.env.get(...)`.
-- Frontend only uses publishable Supabase config (`VITE_SUPABASE_URL`, `VITE_SUPABASE_KEY`).
+- Frontend only uses publishable Supabase config (`VITE_SUPABASE_URL` plus `VITE_SUPABASE_KEY` or `VITE_SUPABASE_ANON_KEY`).
 
 ## Supported models
 
@@ -105,6 +105,8 @@ npm install
 VITE_SUPABASE_URL=https://<project-ref>.supabase.co
 VITE_SUPABASE_KEY=<supabase-anon-key>
 ```
+
+Compatibility: `VITE_SUPABASE_ANON_KEY` is also accepted as the key variable.
 
 Optional:
 
