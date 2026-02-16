@@ -9,7 +9,7 @@ interface ConversationBarProps {
   waveformClassName?: string;
   onConnect?: () => void;
   onDisconnect?: () => void;
-  onError?: (error: Error) => void;
+  onError?: (message: string, context?: unknown) => void;
   onMessage?: (message: { source: 'user' | 'ai'; message: string }) => void;
 }
 
@@ -27,6 +27,7 @@ export const ConversationBar: React.FC<ConversationBarProps> = ({
   const [waveformData, setWaveformData] = useState<number[]>(new Array(40).fill(0));
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
   const animationFrameRef = useRef<number>(0);
 
   const conversation = useConversation({
@@ -38,8 +39,8 @@ export const ConversationBar: React.FC<ConversationBarProps> = ({
       onDisconnect?.();
       cleanupAudioAnalysis();
     },
-    onError: (error) => {
-      onError?.(error);
+    onError: (message, context) => {
+      onError?.(message, context);
     },
     onMessage: (message) => {
       onMessage?.(message);
@@ -56,6 +57,7 @@ export const ConversationBar: React.FC<ConversationBarProps> = ({
       analyser.fftSize = 128;
       source.connect(analyser);
 
+      mediaStreamRef.current = stream;
       audioContextRef.current = audioContext;
       analyserRef.current = analyser;
 
@@ -90,6 +92,10 @@ export const ConversationBar: React.FC<ConversationBarProps> = ({
       audioContextRef.current.close();
       audioContextRef.current = null;
     }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
     analyserRef.current = null;
     setWaveformData(new Array(40).fill(0));
   };
@@ -102,7 +108,7 @@ export const ConversationBar: React.FC<ConversationBarProps> = ({
 
   const handleConnect = async () => {
     try {
-      await conversation.startSession({ agentId });
+      await conversation.startSession({ agentId, connectionType: 'webrtc' });
     } catch (error) {
       console.error('Failed to start conversation:', error);
     }
@@ -114,8 +120,7 @@ export const ConversationBar: React.FC<ConversationBarProps> = ({
 
   const handleSendText = () => {
     if (!textInput.trim()) return;
-    conversation.setVolume({ volume: 0.8 });
-    // Send as contextual input
+    conversation.sendUserMessage(textInput.trim());
     setTextInput('');
   };
 
@@ -150,6 +155,13 @@ export const ConversationBar: React.FC<ConversationBarProps> = ({
     }
   };
 
+  const isMicMuted = !!conversation.micMuted;
+
+  const handleToggleMicMute = () => {
+    // TODO: Wire mic mute control once @elevenlabs/react exposes runtime setter in hook return.
+    console.warn('Mic mute toggle unavailable in current @elevenlabs/react hook API.');
+  };
+
   return (
     <div className={`flex flex-col gap-3 p-4 glass-panel neon-border ${className}`}>
       {/* Status Bar */}
@@ -171,9 +183,9 @@ export const ConversationBar: React.FC<ConversationBarProps> = ({
 
           {conversation.status === 'connected' && (
             <TactileButton
-              state={conversation.isMuted ? 'error' : 'online'}
-              onClick={conversation.isMuted ? conversation.unmute : conversation.mute}
-              icon={conversation.isMuted ? <MicOff size={14} /> : <Mic size={14} />}
+              state={isMicMuted ? 'error' : 'online'}
+              onClick={handleToggleMicMute}
+              icon={isMicMuted ? <MicOff size={14} /> : <Mic size={14} />}
               className="!px-3 !py-2"
             />
           )}
@@ -199,7 +211,7 @@ export const ConversationBar: React.FC<ConversationBarProps> = ({
       </div>
 
       {/* Waveform Visualization */}
-      {conversation.status === 'connected' && !conversation.isMuted && (
+      {conversation.status === 'connected' && !isMicMuted && (
         <div className="flex items-center justify-center gap-0.5 h-16 glass-light neon-border p-2">
           {waveformData.map((value, i) => (
             <div

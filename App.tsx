@@ -362,13 +362,20 @@ const App: React.FC = () => {
           base64_data: base64Data,
           mime_type: file.type,
           media_type: 'image',
-          user_id: 'rami',
+          user_id: 'rami', // TODO: Replace with auth-derived user ID when auth is implemented
         }),
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Vision analysis failed');
+        let errorMessage: string;
+        try {
+          const errorBody = await response.json() as { error?: string };
+          errorMessage = errorBody.error || `HTTP ${response.status}`;
+        } catch {
+          const fallbackText = await response.text().catch(() => 'Unknown error');
+          errorMessage = `HTTP ${response.status}: ${fallbackText}`;
+        }
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();

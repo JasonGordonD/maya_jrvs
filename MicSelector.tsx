@@ -23,7 +23,8 @@ export const useAudioDevices = () => {
 
     try {
       // Request microphone permission
-      await navigator.mediaDevices.getUserMedia({ audio: true });
+      const permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      permissionStream.getTracks().forEach((track) => track.stop());
       setHasPermission(true);
 
       // Enumerate devices
