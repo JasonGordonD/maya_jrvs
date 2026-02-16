@@ -198,15 +198,22 @@ const App: React.FC = () => {
 
     setIsProcessing(true);
     try {
-      const base64Data = await new Promise<string>((resolve, reject) => {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result as string;
-          resolve(result.split(',')[1]);
-        };
+        reader.onload = () => resolve(reader.result as string);
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
+      const base64Data = dataUrl.split(',')[1];
+
+      const userImageMessage: TranscriptItem = {
+        id: `${Date.now()}`,
+        role: 'user',
+        text: `[Image uploaded: ${file.name}]`,
+        imageUrl: dataUrl,
+        timestamp: new Date()
+      };
+      setTranscript((prev) => [...prev, userImageMessage]);
 
       if (!supabaseUrl) {
         throw new Error('SUPABASE_ENV_MISSING. CHECK VITE_SUPABASE_URL.');
@@ -223,7 +230,7 @@ const App: React.FC = () => {
           base64_data: base64Data,
           mime_type: file.type,
           media_type: 'image',
-          user_id: 'rami', // TODO: Replace with auth-derived user ID when auth is implemented
+          user_id: 'rami',
         }),
       });
 
@@ -241,23 +248,35 @@ const App: React.FC = () => {
 
       const result = await response.json() as { analysis_text?: string };
       const analysis = result.analysis_text || 'No analysis text returned.';
-      setTranscript((prev) => [
-        ...prev,
-        {
-          id: `${Date.now()}`,
-          role: 'user',
-          text: `[Image uploaded: ${file.name}]`,
-          timestamp: new Date()
-        },
-      ]);
-      await handleUserInput(`Vision analysis: ${analysis}`, false);
+
+      const history = [...transcript, userImageMessage].map((item) => ({ role: item.role, text: item.text }));
+      const mayaResponse = await generateMayaResponse(history, `[Vision analysis of uploaded image "${file.name}"]: ${analysis}`, selectedModel);
+      setLatencyByModel((prev) => ({ ...prev, [selectedModel]: mayaResponse.latencyMs }));
+
+      const modelMessage: TranscriptItem = {
+        id: `${Date.now() + 1}`,
+        role: 'model',
+        text: mayaResponse.content,
+        timestamp: new Date(),
+        metadata: {
+          token_count: mayaResponse.tokens,
+          model: mayaResponse.model,
+          provider: mayaResponse.provider,
+          latency_ms: mayaResponse.latencyMs,
+        }
+      };
+      setTranscript((prev) => [...prev, modelMessage]);
+
+      if (systemOnline) {
+        await speak(mayaResponse.content);
+      }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unknown vision failure';
       addError('VISION_FAILURE', message, 'SYSTEM', { fileName: file.name });
     } finally {
       setIsProcessing(false);
     }
-  }, [addError, handleUserInput, supabaseKey, supabaseUrl]);
+  }, [addError, selectedModel, speak, supabaseKey, supabaseUrl, systemOnline, transcript]);
 
   useEffect(() => {
     if (!systemOnline || micMuted) {
@@ -472,6 +491,13 @@ const App: React.FC = () => {
                   metadata={item.metadata}
                 >
                   <MessageContent from={item.role === 'user' ? 'user' : 'assistant'}>
+                    {item.imageUrl && (
+                      <img
+                        src={item.imageUrl}
+                        alt="Uploaded image"
+                        className="maya-message-image"
+                      />
+                    )}
                     {item.role === 'model' ? <Response>{item.text}</Response> : <span>{item.text}</span>}
                   </MessageContent>
                 </Message>
