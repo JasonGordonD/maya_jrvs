@@ -127,7 +127,7 @@ Set in Supabase Edge Function secrets:
 - `ANTHROPIC_API_KEY`
 - `XAI_API_KEY`
 - `MISTRAL_API_KEY`
-- `FRONTEND_ORIGIN` (optional, defaults to `http://localhost:3001`)
+- `ELEVENLABS_API_KEY` (required for `mjrvs_tts` neural voice proxy)
 
 ### 4) Run
 
