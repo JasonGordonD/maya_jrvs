@@ -36,11 +36,23 @@ type WebSpeechRecognition = {
 
 type SpeechRecognitionConstructor = new () => WebSpeechRecognition;
 
-export const useSpeechToText = (onFinalTranscript: (text: string) => void) => {
+type UseSpeechToTextOptions = {
+  selectedDeviceId?: string;
+};
+
+export const useSpeechToText = (
+  onFinalTranscript: (text: string) => void,
+  options?: UseSpeechToTextOptions
+) => {
+  const selectedDeviceId = options?.selectedDeviceId?.trim() || undefined;
   const [isListening, setIsListening] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState('');
   const [engine, setEngine] = useState<STTEngine>('WEB_SPEECH');
   const shouldCaptureRef = useRef(false);
+  const selectedDeviceIdRef = useRef<string | undefined>(selectedDeviceId);
+  const warnedWebSpeechDeviceRef = useRef(false);
+  const previousSelectedDeviceRef = useRef<string | undefined>(selectedDeviceId);
+  const realtimeConnectingRef = useRef(false);
 
   // Web Speech API refs
   const recognitionRef = useRef<WebSpeechRecognition | null>(null);
@@ -50,6 +62,16 @@ export const useSpeechToText = (onFinalTranscript: (text: string) => void) => {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
+
+  useEffect(() => {
+    selectedDeviceIdRef.current = selectedDeviceId;
+  }, [selectedDeviceId]);
+
+  useEffect(() => {
+    if (engine !== 'ELEVEN_LABS_REALTIME' || !isListening) {
+      previousSelectedDeviceRef.current = selectedDeviceId;
+    }
+  }, [engine, isListening, selectedDeviceId]);
 
   // Web Speech API setup
   useEffect(() => {
@@ -127,11 +149,16 @@ export const useSpeechToText = (onFinalTranscript: (text: string) => void) => {
 
   // ElevenLabs Realtime STT
   const startElevenLabsRealtime = useCallback(async () => {
+    if (realtimeConnectingRef.current || isListening) {
+      return;
+    }
+    realtimeConnectingRef.current = true;
     try {
       const proxyWebsocketUrl = import.meta.env.VITE_STT_PROXY_WS_URL;
       if (!proxyWebsocketUrl) {
         // TODO: Route ElevenLabs realtime STT through a server-side proxy WebSocket.
         console.warn('[MJRVS] STT proxy URL not configured. Falling back to WEB_SPEECH.');
+        realtimeConnectingRef.current = false;
         setEngine('WEB_SPEECH');
         setIsListening(false);
         return;
@@ -144,8 +171,23 @@ export const useSpeechToText = (onFinalTranscript: (text: string) => void) => {
         try {
           console.log('STT proxy websocket connected');
 
+          const selectedDeviceId = selectedDeviceIdRef.current?.trim();
+          let stream: MediaStream;
+
           // Get microphone stream
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          if (selectedDeviceId) {
+            try {
+              stream = await navigator.mediaDevices.getUserMedia({
+                audio: { deviceId: { exact: selectedDeviceId } },
+              });
+            } catch (error) {
+              console.warn('[MJRVS] Selected input device unavailable; falling back to default input.', error);
+              stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            }
+          } else {
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          }
+
           mediaStreamRef.current = stream;
 
           // Setup audio processing
@@ -170,9 +212,11 @@ export const useSpeechToText = (onFinalTranscript: (text: string) => void) => {
           source.connect(processor);
           processor.connect(audioContext.destination);
 
+          realtimeConnectingRef.current = false;
           setIsListening(true);
         } catch (err) {
           console.error('[MJRVS] STT setup failed:', err);
+          realtimeConnectingRef.current = false;
           ws.close();
           setIsListening(false);
         }
@@ -197,22 +241,26 @@ export const useSpeechToText = (onFinalTranscript: (text: string) => void) => {
 
       ws.onerror = (error) => {
         console.error('ElevenLabs Realtime STT error:', error);
+        realtimeConnectingRef.current = false;
         setIsListening(false);
       };
 
       ws.onclose = () => {
         console.log('STT proxy websocket disconnected');
+        realtimeConnectingRef.current = false;
         setIsListening(false);
       };
 
       websocketRef.current = ws;
     } catch (error) {
       console.error('Failed to start ElevenLabs Realtime STT:', error);
+      realtimeConnectingRef.current = false;
       setIsListening(false);
     }
-  }, [onFinalTranscript]);
+  }, [isListening, onFinalTranscript]);
 
   const stopElevenLabsRealtime = useCallback(() => {
+    realtimeConnectingRef.current = false;
     if (processorRef.current) {
       processorRef.current.disconnect();
       processorRef.current = null;
@@ -241,6 +289,12 @@ export const useSpeechToText = (onFinalTranscript: (text: string) => void) => {
   const startListening = useCallback(() => {
     shouldCaptureRef.current = true;
     if (engine === 'WEB_SPEECH') {
+      if (selectedDeviceIdRef.current && !warnedWebSpeechDeviceRef.current) {
+        console.warn(
+          '[MJRVS] WEB_SPEECH engine uses browser-default input. Switch to ELEVEN_LABS_REALTIME to force selected device.'
+        );
+        warnedWebSpeechDeviceRef.current = true;
+      }
       if (recognitionRef.current && !isListening) {
         try {
           recognitionRef.current.start();
@@ -257,24 +311,35 @@ export const useSpeechToText = (onFinalTranscript: (text: string) => void) => {
   const stopListening = useCallback(() => {
     shouldCaptureRef.current = false;
     setInterimTranscript('');
-    if (engine === 'WEB_SPEECH') {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.abort?.();
-        } catch {
-          // Ignore abort errors.
-        }
-        try {
-          recognitionRef.current.stop();
-        } catch {
-          // Ignore stop errors.
-        }
-        setIsListening(false);
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.abort?.();
+      } catch {
+        // Ignore abort errors.
       }
-    } else {
-      stopElevenLabsRealtime();
+      try {
+        recognitionRef.current.stop();
+      } catch {
+        // Ignore stop errors.
+      }
     }
-  }, [engine, stopElevenLabsRealtime]);
+    stopElevenLabsRealtime();
+    setIsListening(false);
+  }, [stopElevenLabsRealtime]);
+
+  useEffect(() => {
+    if (engine !== 'ELEVEN_LABS_REALTIME' || !isListening) {
+      return;
+    }
+    const previousDeviceId = previousSelectedDeviceRef.current;
+    if (previousDeviceId === selectedDeviceId) {
+      return;
+    }
+    previousSelectedDeviceRef.current = selectedDeviceId;
+    // Reconnect realtime capture so selected input device changes take effect.
+    stopElevenLabsRealtime();
+    startElevenLabsRealtime();
+  }, [engine, isListening, selectedDeviceId, startElevenLabsRealtime, stopElevenLabsRealtime]);
 
   return { isListening, interimTranscript, startListening, stopListening, engine, setEngine };
 };

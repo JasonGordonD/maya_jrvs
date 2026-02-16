@@ -123,6 +123,10 @@ VITE_ELEVENLABS_OUTPUT_FORMAT=mp3_44100_64
 VITE_ELEVENLABS_MODEL_ID=eleven_v3
 ```
 
+Runtime note:
+- `Web STT` uses the browser SpeechRecognition engine and follows browser-default input device.
+- `Proxy STT` (realtime websocket path) uses the selected mic device ID from the Mic selector.
+
 ### 3) Edge secrets (Supabase project)
 
 Set in Supabase Edge Function secrets:

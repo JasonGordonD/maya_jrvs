@@ -33,7 +33,7 @@ export const useAudioDevices = () => {
         .filter((device) => device.kind === 'audioinput')
         .map((device) => ({
           deviceId: device.deviceId,
-          label: device.label.replace(/\s*\(.*?\)\s*/g, '').trim() || `Microphone ${device.deviceId.slice(0, 4)}`,
+          label: device.label.trim() || `Microphone ${device.deviceId.slice(0, 4)}`,
           groupId: device.groupId,
         }));
 

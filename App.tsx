@@ -182,7 +182,7 @@ const App: React.FC = () => {
     interimTranscript,
     engine: sttEngine,
     setEngine: setSttEngine
-  } = useSpeechToText(handleUserSpeech);
+  } = useSpeechToText(handleUserSpeech, { selectedDeviceId: selectedMic });
 
   const handleTextSubmit = useCallback((event?: React.FormEvent) => {
     event?.preventDefault();
@@ -363,6 +363,16 @@ const App: React.FC = () => {
             onClick={() => setTtsEngine((prev) => (prev === 'ELEVEN_LABS' ? 'WEB_NATIVE' : 'ELEVEN_LABS'))}
           >
             {ttsEngine === 'ELEVEN_LABS' ? 'Neural' : 'Native'}
+          </TactileButton>
+          <TactileButton
+            state={sttEngine === 'ELEVEN_LABS_REALTIME' ? 'online' : 'default'}
+            icon={<Mic size={14} />}
+            onClick={() => {
+              stopListening();
+              setSttEngine((prev) => (prev === 'ELEVEN_LABS_REALTIME' ? 'WEB_SPEECH' : 'ELEVEN_LABS_REALTIME'));
+            }}
+          >
+            {sttEngine === 'ELEVEN_LABS_REALTIME' ? 'Proxy STT' : 'Web STT'}
           </TactileButton>
           <TactileButton
             state={showMicSelector ? 'online' : 'default'}
