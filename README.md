@@ -1,110 +1,153 @@
-# Maya JRVS v3.5 - Executive Orchestrator
+# Maya JRVS v3.0
 
-Real-time voice-first AI executive orchestrator with adjustable personality architecture, cognitive state visualization, and direct Gemini 3 Flash integration.
+Browser-based executive AI assistant with a warm, frosted-glass interface and an edge-routed multi-provider LLM backend.
 
-## Current Status
+## What is in this repo
 
-**✓ SYSTEM PROMPT FIX DEPLOYED**
-- Maya's v3.0 personality prompt now correctly loads at model initialization level
-- Fixed: `systemInstruction` moved from `config` object to model-level parameter
-- Using Google Gemini 3 Flash Preview (non-deprecated, stable until March 2026)
-- Debug logging enabled to verify prompt delivery
+- **Frontend**: React 19 + Vite 6 (single runtime tree at repo root)
+- **LLM client bridge**: `services/gemini.ts` (frontend -> Supabase Edge Function)
+- **Edge function**: `supabase/functions/mjrvs_llm/index.ts` (provider router)
+- **Voice hooks**:
+  - `hooks/useElevenLabs.ts` (browser -> proxy endpoint for TTS)
+  - `hooks/useSpeechToText.ts` (browser -> proxy websocket for realtime STT)
 
 ## Architecture
 
-```
-Browser UI (React + Vite)
+```text
+React UI (localhost:3001)
     ↓
 services/gemini.ts
     ↓
-Google GenAI SDK
+Supabase Edge Function: mjrvs_llm
     ↓
-Gemini 3 Flash Preview API
+Provider routing by model prefix
+    ├─ gemini-*      -> Google
+    ├─ claude-*      -> Anthropic
+    ├─ grok-*        -> xAI
+    └─ mistral-*     -> Mistral
 ```
 
-**Key File:** `/services/gemini.ts`
-- **Lines 10-26**: Maya v3.0 system prompt (exported as `SYSTEM_INSTRUCTION`)
-- **Line 54**: System prompt injected at model level: `systemInstruction: SYSTEM_INSTRUCTION`
-- **Line 36**: Debug log proves prompt is loaded before each API call
+### LLM routing (implemented)
 
-## Features
+The edge function expects:
 
-- **Voice Interaction**: ElevenLabs Conversational AI integration
-- **Personality Architecture**: Adjustable parameters (caution, formality, trust, relationship depth)
-- **Cognitive Soma**: Real-time visualization of context pressure, synchrony, friction load
-- **Canvas Orb**: Reactive visualizer with gyroscopic rings and energy field
-- **System Prompt Delivery**: Verified v3.0 Maya personality architecture
+```json
+{
+  "action": "chat",
+  "model": "gemini-3-flash-preview",
+  "system_prompt": "...",
+  "messages": [{ "role": "user", "content": "..." }],
+  "temperature": 0.7
+}
+```
 
-## Setup
+Unified response:
 
-### 1. Install Dependencies
+```json
+{
+  "content": "...",
+  "model": "gemini-3-flash-preview",
+  "provider": "google",
+  "tokens": 847
+}
+```
+
+## Security posture
+
+- Browser no longer calls LLM providers directly.
+- Browser no longer sends provider API keys.
+- Provider keys are read in edge runtime via `Deno.env.get(...)`.
+- Frontend only uses publishable Supabase config (`VITE_SUPABASE_URL`, `VITE_SUPABASE_KEY`).
+
+## Supported models
+
+- `gemini-3-flash-preview`
+- `gemini-3-pro-preview`
+- `claude-opus-4-6`
+- `claude-sonnet-4-5-20250929`
+- `claude-haiku-4-5-20251001`
+- `grok-4`
+- `grok-4-heavy`
+- `mistral-large-2512`
+- `mistral-medium-2508`
+- `magistral-medium-2509`
+
+## UI design system
+
+Current frontend uses a warm copper palette and frosted surfaces:
+
+- Tokens in `index.css`:
+  - `--bg-void`, `--bg-surface`, `--bg-elevated`, `--bg-panel`
+  - `--accent-warm`, `--accent-warm-dim`
+  - text/border tokens
+- Typography:
+  - **DM Sans** (UI + conversation)
+  - **IBM Plex Mono** (system labels, metadata, status)
+- Includes:
+  - film grain overlay
+  - subtle top-left ambient radial glow
+  - telemetry bar
+  - model selector with provider dot + latency
+  - collapsible context sidebar
+  - token metadata lines on assistant responses
+
+## Local development
+
+### 1) Install
+
 ```bash
 npm install
 ```
 
-### 2. Configure Environment
-```bash
-cp .env.example .env.local
-```
+### 2) Frontend env (`.env.local`)
 
-Add to `.env.local`:
 ```env
-VITE_GOOGLE_API_KEY=your_gemini_api_key
-VITE_ELEVENLABS_API_KEY=your_elevenlabs_key
-VITE_ELEVENLABS_AGENT_ID=your_agent_id
+VITE_SUPABASE_URL=https://<project-ref>.supabase.co
+VITE_SUPABASE_KEY=<supabase-anon-key>
 ```
 
-### 3. Run Development Server
+Optional:
+
+```env
+VITE_STT_PROXY_WS_URL=wss://<your-stt-proxy>
+VITE_ELEVENLABS_AUTO_MODE=false
+VITE_ELEVENLABS_VOICE_ID=<non-secret-id>
+VITE_ELEVENLABS_OUTPUT_FORMAT=mp3_44100_64
+VITE_ELEVENLABS_MODEL_ID=eleven_v3
+```
+
+### 3) Edge secrets (Supabase project)
+
+Set in Supabase Edge Function secrets:
+
+- `GEMINI_API_KEY`
+- `ANTHROPIC_API_KEY`
+- `XAI_API_KEY`
+- `MISTRAL_API_KEY`
+- `FRONTEND_ORIGIN` (optional, defaults to `http://localhost:3001`)
+
+### 4) Run
+
 ```bash
 npm run dev
 ```
 
-Server runs at: http://localhost:3000
+Dev server: `http://localhost:3001`
 
-## Verification
+## Scripts
 
-### Test System Prompt Delivery
+- `npm run dev`
+- `npm run build`
+- `npm run preview`
+- `npx tsc --noEmit`
 
-1. Open http://localhost:3000
-2. Open browser console (F12)
-3. Send test message: "hey Maya what's up"
-4. Look for console logs:
-   ```
-   SYSTEM PROMPT LOADED: I'm Maya. Senior advisor, systems architect, executive orchestrator for PRMPT...
-   Maya response (first 100 chars): [Maya's response in her voice]
-   ```
+## Validation checklist
 
-### Expected Behavior
-
-Maya should respond with:
-- ✓ Direct, structured prose
-- ✓ No emoji (unless explicitly requested)
-- ✓ No padding/filler words
-- ✓ "Done." "Struck." "Agreed." style confirmations
-- ✗ NOT generic Gemini responses with emoji/casual language
-
-## Tech Stack
-
-- **Frontend**: React 19 + Vite 6
-- **LLM**: Google Gemini 3 Flash Preview (via `@google/genai` SDK)
-- **Voice**: ElevenLabs Conversational AI V3
-- **Styling**: Tailwind CSS + Custom holographic UI
-- **Visualization**: Canvas API (MayaOrb component)
-
-## Known Issues
-
-- Model selector UI present but not wired (future: multi-provider LLM router)
-- Vision upload UI present but not wired to Gemini vision API
-- Scrolling fixed, transcript panel works correctly
-
-## Next Steps
-
-1. ✓ Verify system prompt delivery (PRIORITY)
-2. Deploy mjrvs_llm edge function (multi-provider LLM router)
-3. Wire model selector dropdown to edge function
-4. Enable vision file upload to Gemini vision API
-5. Deploy to production
+```bash
+npx tsc --noEmit
+npm run build
+```
 
 ## License
 
-Proprietary - PRMPT/Maya JRVS Internal
+Proprietary - PRMPT / Maya JRVS Internal
