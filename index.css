@@ -136,6 +136,24 @@ body {
   color: var(--text-primary);
   font-size: 12px;
   font-family: 'IBM Plex Mono', monospace;
+  color-scheme: dark;
+}
+
+.maya-model-select option {
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  padding: 6px 8px;
+}
+
+.maya-model-select option:checked {
+  background: var(--accent-warm-dim);
+  color: var(--accent-warm);
+}
+
+.maya-model-select option:hover {
+  background: var(--glass-hover);
 }
 
 .maya-model-latency {
