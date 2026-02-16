@@ -1,0 +1,413 @@
+/* ============================================================
+   HoloUI.css - Maya JRVS Holographic Interface Layer
+   Glass textures, CRT effects, and neon glow system
+   ============================================================ */
+
+/* ----------------------------------------------------------
+   CSS Custom Properties
+   ---------------------------------------------------------- */
+:root {
+  --holo-bg: #050505;
+  --holo-cyan: rgba(34, 211, 238, 1);
+  --holo-cyan-30: rgba(34, 211, 238, 0.3);
+  --holo-cyan-15: rgba(34, 211, 238, 0.15);
+  --holo-cyan-05: rgba(34, 211, 238, 0.05);
+  --holo-red: rgba(239, 68, 68, 0.8);
+  --holo-scanline-speed: 8s;
+  --holo-hex-size: 30px;
+  --holo-hex-opacity: 0.05;
+}
+
+/* ----------------------------------------------------------
+   Hexagonal Mesh Background Pattern
+   SVG-based hex grid at 5% opacity on #050505
+   ---------------------------------------------------------- */
+.hex-mesh {
+  background-color: var(--holo-bg);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='49' viewBox='0 0 28 49'%3E%3Cg fill-rule='evenodd'%3E%3Cg fill='%2322d3ee' fill-opacity='0.05'%3E%3Cpath d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.98-7.5V0h-2v6.35L0 12.69v2.3zm0 18.5L12.98 41v8h-2v-6.85L0 35.81v-2.3zM15 0v7.5L27.99 15H28v-2.31h-.01L17 6.35V0h-2zm0 49v-8l12.99-7.5H28v2.31h-.01L17 42.15V49h-2z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* Alternate: pure CSS hex-dot overlay for layering */
+.hex-mesh-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='49' viewBox='0 0 28 49'%3E%3Cg fill-rule='evenodd'%3E%3Cg fill='%2322d3ee' fill-opacity='0.05'%3E%3Cpath d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.98-7.5V0h-2v6.35L0 12.69v2.3zm0 18.5L12.98 41v8h-2v-6.85L0 35.81v-2.3zM15 0v7.5L27.99 15H28v-2.31h-.01L17 6.35V0h-2zm0 49v-8l12.99-7.5H28v2.31h-.01L17 42.15V49h-2z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* ----------------------------------------------------------
+   CRT Monitor Vignette Effect
+   Radial gradient darkening at corners
+   ---------------------------------------------------------- */
+.crt-vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9998;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 50%,
+    rgba(0, 0, 0, 0.3) 80%,
+    rgba(0, 0, 0, 0.7) 100%
+  );
+}
+
+/* Stronger vignette variant */
+.crt-vignette-strong {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9998;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 40%,
+    rgba(0, 0, 0, 0.4) 70%,
+    rgba(0, 0, 0, 0.85) 100%
+  );
+}
+
+/* ----------------------------------------------------------
+   Animated Scanline Overlay
+   Horizontal moving lines simulating CRT scan
+   ---------------------------------------------------------- */
+@keyframes scanlines-scroll {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(4px);
+  }
+}
+
+.scanline-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9997;
+  overflow: hidden;
+}
+
+.scanline-overlay::before {
+  content: '';
+  position: absolute;
+  inset: -4px 0 0 0;
+  height: calc(100% + 4px);
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 2px,
+    rgba(0, 0, 0, 0.15) 2px,
+    rgba(0, 0, 0, 0.15) 4px
+  );
+  animation: scanlines-scroll var(--holo-scanline-speed) linear infinite;
+}
+
+/* Horizontal sweep line - a single bright scanline moving top to bottom */
+@keyframes scanline-sweep {
+  0% {
+    top: -2px;
+    opacity: 1;
+  }
+  100% {
+    top: 100%;
+    opacity: 0.3;
+  }
+}
+
+.scanline-overlay::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    var(--holo-cyan-15) 20%,
+    var(--holo-cyan-30) 50%,
+    var(--holo-cyan-15) 80%,
+    transparent 100%
+  );
+  animation: scanline-sweep 6s linear infinite;
+  opacity: 0.4;
+}
+
+/* ----------------------------------------------------------
+   Frosted Glass Utilities
+   Backdrop blur panels for holographic UI elements
+   ---------------------------------------------------------- */
+.glass {
+  background: rgba(5, 5, 5, 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--holo-cyan-15);
+}
+
+.glass-heavy {
+  background: rgba(5, 5, 5, 0.8);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  border: 1px solid var(--holo-cyan-15);
+}
+
+.glass-light {
+  background: rgba(5, 5, 5, 0.3);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(34, 211, 238, 0.08);
+}
+
+.glass-panel {
+  background: rgba(5, 5, 5, 0.65);
+  backdrop-filter: blur(24px) saturate(1.2);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  border: 1px solid var(--holo-cyan-15);
+  box-shadow:
+    0 0 1px var(--holo-cyan-30),
+    inset 0 1px 0 rgba(34, 211, 238, 0.05);
+}
+
+/* ----------------------------------------------------------
+   Neon Cyan Border Glow
+   Glowing border effects for panels, cards, buttons
+   ---------------------------------------------------------- */
+.neon-border {
+  border: 1px solid var(--holo-cyan-30);
+  box-shadow:
+    0 0 6px rgba(34, 211, 238, 0.1),
+    0 0 12px rgba(34, 211, 238, 0.05),
+    inset 0 0 6px rgba(34, 211, 238, 0.03);
+}
+
+.neon-border-strong {
+  border: 1px solid rgba(34, 211, 238, 0.5);
+  box-shadow:
+    0 0 8px rgba(34, 211, 238, 0.2),
+    0 0 20px rgba(34, 211, 238, 0.1),
+    0 0 40px rgba(34, 211, 238, 0.05),
+    inset 0 0 8px rgba(34, 211, 238, 0.05);
+}
+
+.neon-border-pulse {
+  border: 1px solid var(--holo-cyan-30);
+  animation: neon-pulse 3s ease-in-out infinite;
+}
+
+@keyframes neon-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 6px rgba(34, 211, 238, 0.1),
+      0 0 12px rgba(34, 211, 238, 0.05);
+  }
+  50% {
+    box-shadow:
+      0 0 10px rgba(34, 211, 238, 0.25),
+      0 0 25px rgba(34, 211, 238, 0.1),
+      0 0 50px rgba(34, 211, 238, 0.05);
+  }
+}
+
+/* Red/error neon variant */
+.neon-border-red {
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  box-shadow:
+    0 0 6px rgba(239, 68, 68, 0.1),
+    0 0 12px rgba(239, 68, 68, 0.05),
+    inset 0 0 6px rgba(239, 68, 68, 0.03);
+}
+
+/* ----------------------------------------------------------
+   Neon Text Glow Utilities
+   ---------------------------------------------------------- */
+.neon-text {
+  color: var(--holo-cyan);
+  text-shadow:
+    0 0 7px rgba(34, 211, 238, 0.5),
+    0 0 10px rgba(34, 211, 238, 0.3),
+    0 0 21px rgba(34, 211, 238, 0.2);
+}
+
+.neon-text-subtle {
+  color: var(--holo-cyan);
+  text-shadow: 0 0 8px rgba(34, 211, 238, 0.4);
+}
+
+.neon-text-red {
+  color: rgba(239, 68, 68, 1);
+  text-shadow:
+    0 0 7px rgba(239, 68, 68, 0.5),
+    0 0 10px rgba(239, 68, 68, 0.3);
+}
+
+/* ----------------------------------------------------------
+   Font Utilities (Outfit + JetBrains Mono)
+   Fonts loaded via Google Fonts in index.html
+   ---------------------------------------------------------- */
+.font-holo-heading {
+  font-family: 'Outfit', sans-serif;
+  letter-spacing: 0.05em;
+}
+
+.font-holo-data {
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.font-holo-label {
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+}
+
+/* ----------------------------------------------------------
+   Composite: Full HoloUI Scene Container
+   Apply to body or root wrapper for complete effect stack
+   ---------------------------------------------------------- */
+.holo-scene {
+  background-color: var(--holo-bg);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='49' viewBox='0 0 28 49'%3E%3Cg fill-rule='evenodd'%3E%3Cg fill='%2322d3ee' fill-opacity='0.05'%3E%3Cpath d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.98-7.5V0h-2v6.35L0 12.69v2.3zm0 18.5L12.98 41v8h-2v-6.85L0 35.81v-2.3zM15 0v7.5L27.99 15H28v-2.31h-.01L17 6.35V0h-2zm0 49v-8l12.99-7.5H28v2.31h-.01L17 42.15V49h-2z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  min-height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ----------------------------------------------------------
+   Scrollbar Overrides (holographic theme)
+   ---------------------------------------------------------- */
+.holo-scrollbar::-webkit-scrollbar {
+  width: 3px;
+}
+
+.holo-scrollbar::-webkit-scrollbar-track {
+  background: rgba(5, 5, 5, 0.5);
+}
+
+.holo-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--holo-cyan-30);
+  border-radius: 0;
+}
+
+.holo-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(34, 211, 238, 0.5);
+}
+
+/* ----------------------------------------------------------
+   Interactive Hover States
+   ---------------------------------------------------------- */
+.holo-interactive {
+  transition: all 0.2s ease;
+}
+
+.holo-interactive:hover {
+  border-color: rgba(34, 211, 238, 0.5);
+  box-shadow:
+    0 0 8px rgba(34, 211, 238, 0.15),
+    0 0 20px rgba(34, 211, 238, 0.05);
+}
+
+.holo-interactive:active {
+  border-color: rgba(34, 211, 238, 0.7);
+  box-shadow:
+    0 0 12px rgba(34, 211, 238, 0.3),
+    inset 0 0 8px rgba(34, 211, 238, 0.05);
+}
+
+/* ----------------------------------------------------------
+   TactileButton: Heartbeat Animation (offline state)
+   ---------------------------------------------------------- */
+@keyframes heartbeat {
+  0%, 100% {
+    box-shadow: 0 0 6px rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.3);
+  }
+  25% {
+    box-shadow: 0 0 14px rgba(239, 68, 68, 0.35);
+    border-color: rgba(239, 68, 68, 0.6);
+  }
+  35% {
+    box-shadow: 0 0 6px rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.25);
+    border-color: rgba(239, 68, 68, 0.5);
+  }
+}
+
+/* ----------------------------------------------------------
+   HUD Grid Layout System
+   Mobile: single column stacking
+   Desktop (lg): 3-column HUD with sidebar / center / transcript
+   ---------------------------------------------------------- */
+.hud-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas:
+    "command-bar"
+    "center"
+    "control-deck";
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  position: relative;
+}
+
+@media (min-width: 1024px) {
+  .hud-grid {
+    grid-template-columns: auto 1fr auto;
+    grid-template-rows: auto 1fr auto;
+    grid-template-areas:
+      "command-bar command-bar command-bar"
+      "sidebar     center      transcript"
+      "control-deck control-deck control-deck";
+  }
+}
+
+.hud-command-bar { grid-area: command-bar; }
+.hud-sidebar { grid-area: sidebar; }
+.hud-center {
+  grid-area: center;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.hud-transcript { grid-area: transcript; }
+.hud-control-deck { grid-area: control-deck; }
+
+/* ----------------------------------------------------------
+   Floating Command Bar
+   ---------------------------------------------------------- */
+.floating-command-bar {
+  margin: 12px 16px 0 16px;
+  border-radius: 2px;
+}
+
+@media (min-width: 1024px) {
+  .floating-command-bar {
+    margin: 16px 24px 0 24px;
+  }
+}
+
+/* ----------------------------------------------------------
+   Floating Control Deck
+   ---------------------------------------------------------- */
+.floating-control-deck {
+  margin: 0 auto 16px auto;
+  border-radius: 2px;
+  width: fit-content;
+  min-width: 280px;
+  max-width: calc(100vw - 32px);
+}
+
+@media (min-width: 1024px) {
+  .floating-control-deck {
+    margin-bottom: 24px;
+    min-width: 400px;
+  }
+}

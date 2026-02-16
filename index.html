@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MAYA JRVS | TERMINAL_V3.5</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --cyan-phosphor: rgba(34, 211, 238, 0.5);
+            --red-phosphor: rgba(239, 68, 68, 0.8);
+            --radius: 0rem;
+            --background: 0 0% 0%;
+        }
+        body {
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+            background-color: #000000;
+            color: #22d3ee;
+            overflow: hidden;
+        }
+        .font-outfit {
+            font-family: 'Outfit', sans-serif;
+        }
+        .font-sans {
+            font-family: 'Inter', sans-serif;
+        }
+        .phosphor-glow {
+            text-shadow: 0 0 8px var(--cyan-phosphor);
+        }
+        .phosphor-glow-strong {
+            text-shadow: 0 0 12px var(--cyan-phosphor), 0 0 20px rgba(34, 211, 238, 0.2);
+        }
+        .red-phosphor-glow {
+            text-shadow: 0 0 10px var(--red-phosphor);
+        }
+        ::-webkit-scrollbar {
+            width: 2px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #000000;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #083344;
+        }
+        .grid-substrate {
+            background-image: 
+                linear-gradient(to right, #80808012 1px, transparent 1px),
+                linear-gradient(to bottom, #80808012 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+        @keyframes blink { 0%, 100% { opacity: 1 } 50% { opacity: 0 } }
+        .cursor-blink::after {
+            content: '_';
+            animation: blink 1s step-end infinite;
+        }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4",
+    "lucide-react": "https://esm.sh/lucide-react@^0.564.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.41.0",
+    "@elevenlabs/react": "https://esm.sh/@elevenlabs/react@^0.14.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body class="grid-substrate">
+    <div id="root"></div>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>
