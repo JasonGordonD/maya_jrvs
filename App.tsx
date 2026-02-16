@@ -359,8 +359,10 @@ const App: React.FC = () => {
             state={ttsEngine === 'ELEVEN_LABS' ? 'online' : 'default'}
             icon={<Cpu size={14} />}
             onClick={() => setTtsEngine((prev) => (prev === 'ELEVEN_LABS' ? 'WEB_NATIVE' : 'ELEVEN_LABS'))}
+            aria-label="Toggle voice output engine"
+            title="Toggle voice output engine"
           >
-            {ttsEngine === 'ELEVEN_LABS' ? 'Neural' : 'Native'}
+            {ttsEngine === 'ELEVEN_LABS' ? 'Voice: Neural' : 'Voice: Native'}
           </TactileButton>
           <TactileButton
             state={sttEngine === 'ELEVEN_LABS_REALTIME' ? 'online' : 'default'}
