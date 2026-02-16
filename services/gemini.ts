@@ -32,9 +32,6 @@ export const generateMayaResponse = async (history: { role: string, text: string
   }
 
   try {
-    // PROOF SYSTEM PROMPT IS LOADED
-    console.log('SYSTEM PROMPT LOADED:', SYSTEM_INSTRUCTION.substring(0, 80));
-
     // 1. FORMAT HISTORY
     const contents = history.map(msg => ({
       role: msg.role === 'user' ? 'user' : 'model',
@@ -49,6 +46,7 @@ export const generateMayaResponse = async (history: { role: string, text: string
 
     // 3. EXECUTE GENERATION
     // CRITICAL FIX: systemInstruction at model level, NOT in config
+    console.log('[MJRVS] System prompt loaded:', SYSTEM_INSTRUCTION.substring(0, 80));
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',  // UPDATED: Using non-deprecated model
       systemInstruction: SYSTEM_INSTRUCTION,  // ← FIXED: At model level
