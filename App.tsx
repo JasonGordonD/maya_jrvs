@@ -362,7 +362,7 @@ const App: React.FC = () => {
             aria-label="Toggle voice output engine"
             title="Toggle voice output engine"
           >
-            {ttsEngine === 'ELEVEN_LABS' ? 'Voice: Neural' : 'Voice: Native'}
+            {ttsEngine === 'ELEVEN_LABS' ? 'Voice: ElevenLabs' : 'Voice: Native'}
           </TactileButton>
           <TactileButton
             state={sttEngine === 'ELEVEN_LABS_REALTIME' ? 'online' : 'default'}
@@ -429,7 +429,7 @@ const App: React.FC = () => {
                 <ul>
                   <li><span>Turns</span><strong>{transcript.length}</strong></li>
                   <li><span>Duration</span><strong>{formatDuration(sessionDurationMs)}</strong></li>
-                  <li><span>Voice engine</span><strong>{ttsEngine === 'ELEVEN_LABS' ? 'Neural' : 'Native'}</strong></li>
+                  <li><span>Voice engine</span><strong>{ttsEngine === 'ELEVEN_LABS' ? 'ElevenLabs' : 'Native'}</strong></li>
                   <li><span>STT</span><strong>{sttEngine === 'ELEVEN_LABS_REALTIME' ? 'Proxy RT' : 'Web Speech'}</strong></li>
                 </ul>
               </section>
