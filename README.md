@@ -10,6 +10,8 @@ Browser-based executive AI assistant with a warm, frosted-glass interface and an
 - **Voice hooks**:
   - `hooks/useElevenLabs.ts` (browser -> proxy endpoint for TTS)
   - `hooks/useSpeechToText.ts` (browser -> proxy websocket for realtime STT)
+- **Agent workflow chart**:
+  - `docs/elevenlabs-maya-agent-workflow.md` (Maya JRVS prompt -> ElevenLabs conversational workflow)
 
 ## Architecture
 
