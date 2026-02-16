@@ -67,9 +67,7 @@ Unified response:
 - `claude-opus-4-6`
 - `claude-sonnet-4-5-20250929`
 - `claude-haiku-4-5-20251001`
-- `grok-4`
 - `grok-4-1-fast`
-- `grok-4-heavy`
 - `mistral-large-2512`
 - `mistral-medium-2508`
 - `magistral-medium-2509`
