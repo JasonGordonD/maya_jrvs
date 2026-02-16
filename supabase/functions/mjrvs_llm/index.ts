@@ -44,11 +44,13 @@ const CORS_HEADERS = {
 
 const SUPPORTED_MODELS = new Set<string>([
   "gemini-3-flash-preview",
+  "gemini-2.5-flash",
   "gemini-3-pro-preview",
   "claude-opus-4-6",
   "claude-sonnet-4-5-20250929",
   "claude-haiku-4-5-20251001",
   "grok-4",
+  "grok-4-1-fast",
   "grok-4-heavy",
   "mistral-large-2512",
   "mistral-medium-2508",

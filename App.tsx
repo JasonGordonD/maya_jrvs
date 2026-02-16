@@ -36,11 +36,13 @@ type ModelOption = {
 
 const MODEL_OPTIONS: ModelOption[] = [
   { model: 'gemini-3-flash-preview', provider: 'google', latencyMs: 420 },
+  { model: 'gemini-2.5-flash', provider: 'google', latencyMs: 390 },
   { model: 'gemini-3-pro-preview', provider: 'google', latencyMs: 760 },
   { model: 'claude-opus-4-6', provider: 'anthropic', latencyMs: 880 },
   { model: 'claude-sonnet-4-5-20250929', provider: 'anthropic', latencyMs: 620 },
   { model: 'claude-haiku-4-5-20251001', provider: 'anthropic', latencyMs: 410 },
   { model: 'grok-4', provider: 'xai', latencyMs: 530 },
+  { model: 'grok-4-1-fast', provider: 'xai', latencyMs: 470 },
   { model: 'grok-4-heavy', provider: 'xai', latencyMs: 880 },
   { model: 'mistral-large-2512', provider: 'mistral', latencyMs: 650 },
   { model: 'mistral-medium-2508', provider: 'mistral', latencyMs: 520 },
