@@ -36,12 +36,10 @@ class HttpError extends Error {
   }
 }
 
-const FRONTEND_ORIGIN = Deno.env.get("FRONTEND_ORIGIN") ?? "http://localhost:3001";
 const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": FRONTEND_ORIGIN,
+  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Vary": "Origin",
 };
 
 const SUPPORTED_MODELS = new Set<string>([
