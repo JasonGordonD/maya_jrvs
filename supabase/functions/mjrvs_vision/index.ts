@@ -8,6 +8,11 @@ type GeminiPart = {
   inlineData?: { mimeType: string; data: string };
 };
 
+type GeminiCallResult = {
+  text: string;
+  model: string;
+};
+
 class HttpError extends Error {
   status: number;
   payload?: unknown;
@@ -28,7 +33,16 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-const GEMINI_MODEL = "gemini-2.0-flash-exp";
+const GEMINI_PRIMARY_MODEL = (Deno.env.get("GEMINI_MODEL") ?? "gemini-2.0-flash").trim();
+const GEMINI_MODEL_CANDIDATES = Array.from(
+  new Set([
+    GEMINI_PRIMARY_MODEL,
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+    "gemini-1.5-flash-8b",
+  ].map((model) => model.trim()).filter((model) => model.length > 0)),
+);
 const GROK_VISION_MODEL = "grok-2-vision-1212";
 const VOYAGE_MODEL = "voyage-4-large";
 const MAX_IMAGE_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
@@ -169,33 +183,50 @@ function normalizeAnalysisPrompt(body: Record<string, unknown>): string {
   return customPrompt ?? prompt ?? "Describe this media in detail.";
 }
 
-async function callGemini(parts: GeminiPart[]): Promise<string> {
+async function callGemini(parts: GeminiPart[]): Promise<GeminiCallResult> {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
   if (!apiKey) throw new HttpError(500, "Missing GEMINI_API_KEY");
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ parts }] }),
-    },
-  );
+  let lastNotFoundError = "";
 
-  if (!response.ok) {
-    const err = await response.text();
-    throw new HttpError(response.status, `Gemini error (${response.status})`, { error: err });
+  for (const model of GEMINI_MODEL_CANDIDATES) {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts }] }),
+      },
+    );
+
+    if (!response.ok) {
+      const err = await response.text();
+      const isModelNotFound = response.status === 404 ||
+        /not found|not supported for generateContent/i.test(err);
+      if (isModelNotFound) {
+        lastNotFoundError = err;
+        console.warn(`[mjrvs_vision] Gemini model unavailable, retrying fallback: ${model}`);
+        continue;
+      }
+      throw new HttpError(response.status, `Gemini error (${response.status})`, { error: err, model });
+    }
+
+    const data = await response.json() as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    };
+    const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("").trim();
+
+    if (!text) {
+      throw new HttpError(502, `No text in Gemini response for model '${model}'`);
+    }
+
+    return { text, model };
   }
 
-  const data = await response.json() as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
-  const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("").trim();
-
-  if (!text) {
-    throw new HttpError(502, "No text in Gemini response");
-  }
-  return text;
+  throw new HttpError(502, "No supported Gemini model available", {
+    models_tried: GEMINI_MODEL_CANDIDATES,
+    last_error: lastNotFoundError,
+  });
 }
 
 async function callGrokVision(
@@ -310,8 +341,8 @@ async function getEmbedding(text: string): Promise<number[]> {
 async function extractTags(analysisText: string): Promise<string[]> {
   const tagPrompt =
     `Extract 3-5 short topic tags from this analysis. Return ONLY a comma-separated list, no explanation:\n\n${analysisText}`;
-  const tagText = await callGemini([{ text: tagPrompt }]);
-  return tagText
+  const geminiResult = await callGemini([{ text: tagPrompt }]);
+  return geminiResult.text
     .split(",")
     .map((tag) => tag.trim().toLowerCase())
     .filter((tag) => tag.length > 0)
@@ -353,11 +384,12 @@ async function handleAnalyze(body: Record<string, unknown>): Promise<Response> {
       ? providedMimeType
       : inferVideoMimeTypeFromUrl(mediaUrl);
 
-    analysisText = await callGemini([
+    const geminiResult = await callGemini([
       { fileData: { mimeType, fileUri: mediaUrl } },
       { text: analysisPrompt },
     ]);
-    modelUsed = GEMINI_MODEL;
+    analysisText = geminiResult.text;
+    modelUsed = geminiResult.model;
   }
 
   const embedding = await getEmbedding(analysisText);
@@ -463,11 +495,12 @@ async function handleAnalyzeBase64(body: Record<string, unknown>): Promise<Respo
     );
     modelUsed = GROK_VISION_MODEL;
   } else {
-    analysisText = await callGemini([
+    const geminiResult = await callGemini([
       { inlineData: { mimeType, data: base64Data } },
       { text: analysisPrompt },
     ]);
-    modelUsed = GEMINI_MODEL;
+    analysisText = geminiResult.text;
+    modelUsed = geminiResult.model;
   }
 
   const embedding = await getEmbedding(analysisText);
@@ -550,7 +583,8 @@ async function handleChat(body: Record<string, unknown>): Promise<Response> {
     { text: `user: ${message}` },
   ];
 
-  const response = await callGemini(parts);
+  const geminiResult = await callGemini(parts);
+  const response = geminiResult.text;
 
   const { error: chatInsertError } = await supabase.from("mjrvs_video_chat_history").insert([
     { video_id: visionId, role: "user", message },
