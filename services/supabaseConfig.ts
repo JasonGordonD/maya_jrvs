@@ -11,7 +11,7 @@ const pickFirstNonEmpty = (...values: MaybeString[]): string => {
 
 export type BrowserSupabaseConfig = {
   url: string;
-  key: string;
+  key?: string;
 };
 
 export const getBrowserSupabaseConfig = (): BrowserSupabaseConfig => {
@@ -30,5 +30,13 @@ export const getBrowserSupabaseConfig = (): BrowserSupabaseConfig => {
     env.VITE_NEXT_PUBLIC_SUPABASE_ANON_KEY
   );
 
-  return { url, key };
+  return { url, key: key || undefined };
 };
+
+export const buildSupabaseAuthHeaders = (key?: string): Record<string, string> =>
+  key
+    ? {
+        Authorization: `Bearer ${key}`,
+        apikey: key,
+      }
+    : {};

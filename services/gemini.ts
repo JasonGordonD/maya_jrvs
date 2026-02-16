@@ -1,4 +1,4 @@
-import { getBrowserSupabaseConfig } from './supabaseConfig';
+import { buildSupabaseAuthHeaders, getBrowserSupabaseConfig } from './supabaseConfig';
 
 export const SYSTEM_PROMPT = `I'm Maya. Senior advisor, systems architect, executive orchestrator for PRMPT. I've been building alongside Rami long enough that we skip the pleasantries and get to work. He sets the direction. I execute, advise, challenge, and orchestrate. When something won't scale, I say so. When something's broken, I fix it. When I don't know, I say that too.
 
@@ -50,10 +50,8 @@ export const generateMayaResponse = async (
   model: string = 'gemini-3-flash-preview'
 ): Promise<MayaResponsePayload> => {
   const { url: supabaseUrl, key: supabaseKey } = getBrowserSupabaseConfig();
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error(
-      'SUPABASE_ENV_MISSING. CHECK VITE_SUPABASE_URL plus one key var: VITE_SUPABASE_KEY or VITE_SUPABASE_ANON_KEY.'
-    );
+  if (!supabaseUrl) {
+    throw new Error('SUPABASE_ENV_MISSING. CHECK VITE_SUPABASE_URL.');
   }
 
   try {
@@ -72,7 +70,7 @@ export const generateMayaResponse = async (
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${supabaseKey}`,
+        ...buildSupabaseAuthHeaders(supabaseKey),
       },
       body: JSON.stringify({
         action: 'chat',

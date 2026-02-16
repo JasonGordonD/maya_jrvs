@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { getBrowserSupabaseConfig } from '../services/supabaseConfig';
+import { buildSupabaseAuthHeaders, getBrowserSupabaseConfig } from '../services/supabaseConfig';
 
 export type TTSEngine = 'ELEVEN_LABS' | 'WEB_NATIVE';
 
@@ -94,10 +94,8 @@ export const useElevenLabs = () => {
           const modelId = import.meta.env.VITE_ELEVENLABS_MODEL_ID || "eleven_v3";
           const { url: supabaseUrl, key: supabaseKey } = getBrowserSupabaseConfig();
 
-          if (!supabaseUrl || !supabaseKey) {
-            throw new Error(
-              "Missing Supabase browser env for TTS proxy. Set VITE_SUPABASE_URL and VITE_SUPABASE_KEY or VITE_SUPABASE_ANON_KEY."
-            );
+          if (!supabaseUrl) {
+            throw new Error("Missing Supabase browser env for TTS proxy. Set VITE_SUPABASE_URL.");
           }
 
           // TODO: Deploy/enable mjrvs_tts edge function proxy for ElevenLabs server-side key usage.
@@ -107,7 +105,7 @@ export const useElevenLabs = () => {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${supabaseKey}`,
+                ...buildSupabaseAuthHeaders(supabaseKey),
               },
               body: JSON.stringify({
                 text,

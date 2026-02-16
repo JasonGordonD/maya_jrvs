@@ -26,7 +26,7 @@ import TactileButton from './TactileButton';
 import { Response } from './Response';
 import { MicSelector } from './MicSelector';
 import { FileUpload } from './FileUpload';
-import { getBrowserSupabaseConfig } from './services/supabaseConfig';
+import { buildSupabaseAuthHeaders, getBrowserSupabaseConfig } from './services/supabaseConfig';
 
 type ModelOption = {
   model: string;
@@ -208,17 +208,15 @@ const App: React.FC = () => {
         reader.readAsDataURL(file);
       });
 
-      if (!supabaseUrl || !supabaseKey) {
-        throw new Error(
-          'SUPABASE_ENV_MISSING. CHECK VITE_SUPABASE_URL plus one key var: VITE_SUPABASE_KEY or VITE_SUPABASE_ANON_KEY.'
-        );
+      if (!supabaseUrl) {
+        throw new Error('SUPABASE_ENV_MISSING. CHECK VITE_SUPABASE_URL.');
       }
 
       const response = await fetch(`${supabaseUrl}/functions/v1/mjrvs_vision`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${supabaseKey}`,
+          ...buildSupabaseAuthHeaders(supabaseKey),
         },
         body: JSON.stringify({
           action: 'analyze_base64',
