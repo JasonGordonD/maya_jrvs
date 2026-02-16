@@ -112,6 +112,8 @@ If your Edge Functions are deployed with `--no-verify-jwt`, the key can be omitt
 Optional:
 
 ```env
+# STT defaults to browser Web Speech API.
+# VITE_STT_PROXY_WS_URL is only for an optional custom realtime proxy.
 VITE_STT_PROXY_WS_URL=wss://<your-stt-proxy>
 VITE_ELEVENLABS_AUTO_MODE=false
 VITE_ELEVENLABS_VOICE_ID=<non-secret-id>

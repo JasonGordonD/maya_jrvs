@@ -383,8 +383,13 @@ const App: React.FC = () => {
               if (systemOnline) {
                 stopListening();
                 stopSpeaking();
+                setMicMuted(true);
+                setShowMicSelector(false);
+                setSystemOnline(false);
+                return;
               }
-              setSystemOnline((prev) => !prev);
+              setMicMuted(false);
+              setSystemOnline(true);
             }}
           >
             {systemOnline ? 'Online' : 'Offline'}

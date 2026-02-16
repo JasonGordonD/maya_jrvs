@@ -16,6 +16,7 @@ export const useElevenLabs = () => {
   const [engine, setEngine] = useState<TTSEngine>(initialEngine);
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null); 
   const speechSynthRef = useRef<SpeechSynthesis>(window.speechSynthesis);
 
@@ -29,7 +30,12 @@ export const useElevenLabs = () => {
     if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.currentTime = 0;
+        audioRef.current.src = '';
         audioRef.current = null; 
+    }
+    if (audioUrlRef.current) {
+        URL.revokeObjectURL(audioUrlRef.current);
+        audioUrlRef.current = null;
     }
 
     // 2. Cancel Native TTS
@@ -41,9 +47,15 @@ export const useElevenLabs = () => {
     setVolume(0);
   }, []);
 
+  const sanitizeSpeechText = useCallback((value: string) => {
+    const withoutStageDirections = value.replace(/\[[^\]]+\]/g, ' ');
+    return withoutStageDirections.replace(/\s+/g, ' ').trim();
+  }, []);
+
   const speakWithWebNative = useCallback((text: string) => {
     try {
-      const utterance = new SpeechSynthesisUtterance(text);
+      const cleanText = sanitizeSpeechText(text);
+      const utterance = new SpeechSynthesisUtterance(cleanText || text);
       utterance.rate = 1.0;
       utterance.pitch = 1.0;
 
@@ -60,7 +72,10 @@ export const useElevenLabs = () => {
       };
 
       utterance.onerror = (event) => {
-        console.error('Native TTS Error:', event);
+        const errorType = (event as SpeechSynthesisErrorEvent).error;
+        if (errorType && errorType !== 'interrupted' && errorType !== 'canceled') {
+          console.error('Native TTS Error:', event);
+        }
         setIsSpeaking(false);
         setVolume(0);
       };
@@ -71,7 +86,7 @@ export const useElevenLabs = () => {
       setIsSpeaking(false);
       setVolume(0);
     }
-  }, []);
+  }, [sanitizeSpeechText]);
 
   const speak = async (text: string) => {
     if (!text) return;
@@ -98,7 +113,6 @@ export const useElevenLabs = () => {
             throw new Error("Missing Supabase browser env for TTS proxy. Set VITE_SUPABASE_URL.");
           }
 
-          // TODO: Deploy/enable mjrvs_tts edge function proxy for ElevenLabs server-side key usage.
           const response = await fetch(
             `${supabaseUrl}/functions/v1/mjrvs_tts`,
             {
@@ -126,6 +140,7 @@ export const useElevenLabs = () => {
           const audioBlob = await response.blob();
           const audioUrl = URL.createObjectURL(audioBlob);
           const audio = new Audio(audioUrl);
+          audioUrlRef.current = audioUrl;
           
           if (abortControllerRef.current?.signal.aborted) return;
 
@@ -134,7 +149,19 @@ export const useElevenLabs = () => {
           audio.onended = () => {
             setIsSpeaking(false);
             setVolume(0);
-            URL.revokeObjectURL(audioUrl); 
+            if (audioUrlRef.current) {
+              URL.revokeObjectURL(audioUrlRef.current);
+              audioUrlRef.current = null;
+            }
+          };
+
+          audio.onerror = () => {
+            setIsSpeaking(false);
+            setVolume(0);
+            if (audioUrlRef.current) {
+              URL.revokeObjectURL(audioUrlRef.current);
+              audioUrlRef.current = null;
+            }
           };
           
           await audio.play();

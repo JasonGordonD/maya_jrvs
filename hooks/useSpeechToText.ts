@@ -30,6 +30,7 @@ type WebSpeechRecognition = {
   onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
   onresult: ((event: SpeechRecognitionEventLike) => void) | null;
   start: () => void;
+  abort?: () => void;
   stop: () => void;
 };
 
@@ -39,6 +40,7 @@ export const useSpeechToText = (onFinalTranscript: (text: string) => void) => {
   const [isListening, setIsListening] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState('');
   const [engine, setEngine] = useState<STTEngine>('WEB_SPEECH');
+  const shouldCaptureRef = useRef(false);
 
   // Web Speech API refs
   const recognitionRef = useRef<WebSpeechRecognition | null>(null);
@@ -67,12 +69,16 @@ export const useSpeechToText = (onFinalTranscript: (text: string) => void) => {
 
       recognition.onstart = () => setIsListening(true);
       recognition.onend = () => {
+        if (!shouldCaptureRef.current) {
+          setInterimTranscript('');
+        }
         setIsListening(false);
       };
 
       recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
         if (event.error === 'not-allowed') {
             console.error("Speech Recognition Error:", event.error);
+            shouldCaptureRef.current = false;
             setIsListening(false);
         }
       };
@@ -101,6 +107,22 @@ export const useSpeechToText = (onFinalTranscript: (text: string) => void) => {
     } else {
         console.warn("Speech Recognition not supported in this browser.");
     }
+
+    return () => {
+      shouldCaptureRef.current = false;
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort?.();
+        } catch {
+          // Ignore cleanup errors.
+        }
+        try {
+          recognitionRef.current.stop();
+        } catch {
+          // Ignore cleanup errors.
+        }
+      }
+    };
   }, [onFinalTranscript, engine]);
 
   // ElevenLabs Realtime STT
@@ -217,8 +239,9 @@ export const useSpeechToText = (onFinalTranscript: (text: string) => void) => {
 
   // Unified start/stop
   const startListening = useCallback(() => {
+    shouldCaptureRef.current = true;
     if (engine === 'WEB_SPEECH') {
-      if (recognitionRef.current && recognitionRef.current.readyState !== 'started') {
+      if (recognitionRef.current && !isListening) {
         try {
           recognitionRef.current.start();
           setIsListening(true);
@@ -229,12 +252,23 @@ export const useSpeechToText = (onFinalTranscript: (text: string) => void) => {
     } else {
       startElevenLabsRealtime();
     }
-  }, [engine, startElevenLabsRealtime]);
+  }, [engine, isListening, startElevenLabsRealtime]);
 
   const stopListening = useCallback(() => {
+    shouldCaptureRef.current = false;
+    setInterimTranscript('');
     if (engine === 'WEB_SPEECH') {
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
+        try {
+          recognitionRef.current.abort?.();
+        } catch {
+          // Ignore abort errors.
+        }
+        try {
+          recognitionRef.current.stop();
+        } catch {
+          // Ignore stop errors.
+        }
         setIsListening(false);
       }
     } else {
