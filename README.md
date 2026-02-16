@@ -57,7 +57,7 @@ Unified response:
 - Browser no longer calls LLM providers directly.
 - Browser no longer sends provider API keys.
 - Provider keys are read in edge runtime via `Deno.env.get(...)`.
-- Frontend requires `VITE_SUPABASE_URL`. A publishable key (`VITE_SUPABASE_KEY` or `VITE_SUPABASE_ANON_KEY`) is optional when target Edge Functions run with JWT verification disabled.
+- Frontend defaults to `https://svqbfxdhpsmioaosuhkb.supabase.co` if `VITE_SUPABASE_URL` is not set. A publishable key (`VITE_SUPABASE_KEY` or `VITE_SUPABASE_ANON_KEY`) is optional when target Edge Functions run with JWT verification disabled.
 
 ## Supported models
 

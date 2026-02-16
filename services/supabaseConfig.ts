@@ -1,5 +1,7 @@
 type MaybeString = string | undefined;
 
+const DEFAULT_SUPABASE_URL = 'https://svqbfxdhpsmioaosuhkb.supabase.co';
+
 const pickFirstNonEmpty = (...values: MaybeString[]): string => {
   for (const value of values) {
     if (typeof value === 'string' && value.trim().length > 0) {
@@ -17,11 +19,12 @@ export type BrowserSupabaseConfig = {
 export const getBrowserSupabaseConfig = (): BrowserSupabaseConfig => {
   const env = import.meta.env;
 
-  const url = pickFirstNonEmpty(
+  const configuredUrl = pickFirstNonEmpty(
     env.VITE_SUPABASE_URL,
     env.VITE_PUBLIC_SUPABASE_URL,
     env.VITE_NEXT_PUBLIC_SUPABASE_URL
   );
+  const url = configuredUrl || DEFAULT_SUPABASE_URL;
 
   const key = pickFirstNonEmpty(
     env.VITE_SUPABASE_KEY,
