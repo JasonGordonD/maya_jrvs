@@ -138,16 +138,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className={`
-          relative p-8 cursor-pointer
-          transition-all duration-200 glass
-          ${
-            isDragging
-              ? 'neon-border-pulse border-dashed shadow-[0_0_30px_rgba(34,211,238,0.15),inset_0_0_20px_rgba(34,211,238,0.05)]'
-              : 'neon-border border-dashed holo-interactive'
-          }
-          ${disabled ? 'opacity-40 cursor-not-allowed' : ''}
-        `}
+        className={`maya-uploader-zone ${isDragging ? 'maya-uploader-dragging' : ''} ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
       >
         <input
           ref={fileInputRef}
@@ -160,27 +151,16 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         />
 
         <div className="flex flex-col items-center gap-4 text-center">
-          <div
-            className={`p-4 transition-all ${
-              isDragging
-                ? 'glass-light neon-border-strong'
-                : 'glass neon-border'
-            }`}
-          >
-            <Upload
-              size={32}
-              className={`transition-colors ${
-                isDragging ? 'text-cyan-400 neon-text-subtle' : 'text-zinc-600'
-              }`}
-            />
+          <div className={`maya-uploader-icon ${isDragging ? 'maya-uploader-icon-active' : ''}`}>
+            <Upload size={28} />
           </div>
 
           <div className="space-y-2">
-            <p className="font-holo-label text-zinc-400" style={{ fontSize: '12px' }}>
-              {isDragging ? 'DROP_FILES_HERE' : 'DRAG_&_DROP_OR_CLICK'}
+            <p className="maya-uploader-title">
+              {isDragging ? 'Drop files here' : 'Drag and drop or click'}
             </p>
-            <p className="font-holo-label text-zinc-600" style={{ fontSize: '10px', letterSpacing: '0.15em' }}>
-              MAX_{maxFiles}_FILES • {maxSize}MB_EACH
+            <p className="maya-uploader-subtitle">
+              Max {maxFiles} files • {maxSize}MB each
             </p>
           </div>
         </div>
@@ -189,8 +169,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({
       {/* File List */}
       {files.length > 0 && (
         <div className="space-y-2">
-          <div className="font-holo-label text-cyan-400 px-1 neon-text-subtle">
-            UPLOADED_FILES ({files.length}/{maxFiles})
+          <div className="maya-uploader-count">
+            Uploaded files ({files.length}/{maxFiles})
           </div>
 
           {files.map((uploadedFile) => {
@@ -199,17 +179,10 @@ export const FileUpload: React.FC<FileUploadProps> = ({
             return (
               <div
                 key={uploadedFile.id}
-                className={`
-                  flex items-center gap-3 p-3 transition-all holo-interactive
-                  ${
-                    uploadedFile.status === 'error'
-                      ? 'glass neon-border-red'
-                      : 'glass-light neon-border'
-                  }
-                `}
+                className={`maya-uploaded-item ${uploadedFile.status === 'error' ? 'maya-uploaded-item-error' : ''}`}
               >
                 {/* Preview or Icon */}
-                <div className="flex-shrink-0 w-10 h-10 flex items-center justify-center glass-light neon-border overflow-hidden">
+                <div className="maya-uploaded-preview">
                   {uploadedFile.preview ? (
                     <img
                       src={uploadedFile.preview}
@@ -217,19 +190,19 @@ export const FileUpload: React.FC<FileUploadProps> = ({
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <Icon size={16} className="text-cyan-400/50" />
+                    <Icon size={16} className="maya-uploaded-icon" />
                   )}
                 </div>
 
                 {/* File Info */}
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs font-holo-data text-zinc-300 truncate">
+                  <div className="maya-uploaded-name truncate">
                     {uploadedFile.file.name}
                   </div>
-                  <div className="font-holo-data text-zinc-600 mt-0.5" style={{ fontSize: '10px' }}>
+                  <div className="maya-uploaded-meta">
                     {formatFileSize(uploadedFile.file.size)}
                     {uploadedFile.status === 'error' && uploadedFile.error && (
-                      <span className="neon-text-red ml-2">• {uploadedFile.error}</span>
+                      <span className="ml-2">• {uploadedFile.error}</span>
                     )}
                   </div>
                 </div>
@@ -237,14 +210,14 @@ export const FileUpload: React.FC<FileUploadProps> = ({
                 {/* Status & Remove */}
                 <div className="flex items-center gap-2">
                   {uploadedFile.status === 'complete' && (
-                    <div className="w-2 h-2 bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.6)]" />
+                    <div className="maya-status-dot active" />
                   )}
                   {uploadedFile.status === 'error' && (
-                    <div className="w-2 h-2 bg-red-400 shadow-[0_0_6px_rgba(239,68,68,0.6)]" />
+                    <div className="maya-status-dot" />
                   )}
 
                   <TactileButton
-                    state="error"
+                    state="default"
                     onClick={() => handleRemoveFile(uploadedFile.id)}
                     icon={<X size={12} />}
                     className="!px-2 !py-1.5"

@@ -7,56 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --cyan-phosphor: rgba(34, 211, 238, 0.5);
-            --red-phosphor: rgba(239, 68, 68, 0.8);
-            --radius: 0rem;
-            --background: 0 0% 0%;
-        }
-        body {
-            font-family: 'JetBrains Mono', 'Courier New', monospace;
-            background-color: #000000;
-            color: #22d3ee;
-            overflow: hidden;
-        }
-        .font-outfit {
-            font-family: 'Outfit', sans-serif;
-        }
-        .font-sans {
-            font-family: 'Inter', sans-serif;
-        }
-        .phosphor-glow {
-            text-shadow: 0 0 8px var(--cyan-phosphor);
-        }
-        .phosphor-glow-strong {
-            text-shadow: 0 0 12px var(--cyan-phosphor), 0 0 20px rgba(34, 211, 238, 0.2);
-        }
-        .red-phosphor-glow {
-            text-shadow: 0 0 10px var(--red-phosphor);
-        }
-        ::-webkit-scrollbar {
-            width: 2px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #000000;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #083344;
-        }
-        .grid-substrate {
-            background-image: 
-                linear-gradient(to right, #80808012 1px, transparent 1px),
-                linear-gradient(to bottom, #80808012 1px, transparent 1px);
-            background-size: 24px 24px;
-        }
-        @keyframes blink { 0%, 100% { opacity: 1 } 50% { opacity: 0 } }
-        .cursor-blink::after {
-            content: '_';
-            animation: blink 1s step-end infinite;
-        }
-    </style>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script type="importmap">
 {
   "imports": {
@@ -71,7 +22,7 @@
 </script>
 <link rel="stylesheet" href="/index.css">
 </head>
-<body class="grid-substrate">
+<body>
     <div id="root"></div>
 <script type="module" src="/index.tsx"></script>
 </body>

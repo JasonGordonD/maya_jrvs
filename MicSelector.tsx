@@ -38,8 +38,10 @@ export const useAudioDevices = () => {
         }));
 
       setDevices(audioInputs);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load audio devices');
+    } catch (err: unknown) {
+      // TODO: type this properly for browser media permission errors.
+      const message = err instanceof Error ? err.message : 'Failed to load audio devices';
+      setError(message);
       setHasPermission(false);
     } finally {
       setLoading(false);
@@ -143,8 +145,8 @@ const LiveWaveform: React.FC<{ deviceId: string; muted: boolean }> = ({ deviceId
             height: `${value * 100}%`,
             opacity: muted ? 0.1 : 0.3 + value * 0.7,
             minHeight: '2px',
-            background: `linear-gradient(to top, var(--holo-cyan-30), var(--holo-cyan))`,
-            boxShadow: !muted && value > 0.3 ? `0 0 ${Math.round(value * 8)}px var(--holo-cyan-15)` : 'none',
+            background: `linear-gradient(to top, var(--accent-warm-dim), var(--accent-warm))`,
+            boxShadow: !muted && value > 0.3 ? `0 0 ${Math.round(value * 8)}px rgba(200,164,110,0.25)` : 'none',
           }}
         />
       ))}
@@ -210,10 +212,10 @@ export const MicSelector: React.FC<MicSelectorProps> = ({
   return (
     <div className={`relative ${className}`}>
       {/* Main Control */}
-      <div className="flex items-center gap-2 glass-panel neon-border p-2">
+      <div className="flex items-center gap-2 maya-panel p-2">
         {/* Mute Toggle */}
         <TactileButton
-          state={isMuted ? 'error' : 'online'}
+          state={isMuted ? 'offline' : 'online'}
           onClick={handleMuteToggle}
           disabled={disabled}
           icon={isMuted ? <MicOff size={14} /> : <Mic size={14} />}
@@ -224,29 +226,29 @@ export const MicSelector: React.FC<MicSelectorProps> = ({
         <button
           onClick={() => setIsOpen(!isOpen)}
           disabled={disabled || loading}
-          className="flex-1 flex items-center justify-between px-3 py-2 glass-light neon-border font-holo-label text-zinc-300 hover:border-[rgba(34,211,238,0.4)] holo-interactive disabled:opacity-30 disabled:cursor-not-allowed"
+          className="flex-1 flex items-center justify-between px-3 py-2 maya-surface border border-[var(--border-medium)] maya-mono text-xs uppercase tracking-wide text-[var(--text-primary)] disabled:opacity-30 disabled:cursor-not-allowed"
         >
           <span className="truncate">{loading ? 'LOADING...' : selectedDeviceLabel}</span>
-          <ChevronDown size={12} className={`transition-transform ${isOpen ? 'rotate-180' : ''} text-cyan-400`} />
+          <ChevronDown size={12} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
         </button>
       </div>
 
       {/* Preview Waveform */}
       {selectedDevice && (
-        <div className="mt-2 glass-light neon-border">
+        <div className="mt-2 maya-surface border border-[var(--border-subtle)]">
           <LiveWaveform deviceId={selectedDevice} muted={isMuted} />
         </div>
       )}
 
       {/* Dropdown */}
       {isOpen && (
-        <div className="absolute top-full left-0 right-0 mt-1 glass-heavy neon-border-strong z-50 max-h-60 overflow-y-auto holo-scrollbar">
+        <div className="absolute top-full left-0 right-0 mt-1 maya-panel z-50 max-h-60 overflow-y-auto maya-scrollbar">
           {error && (
-            <div className="p-3 font-holo-label neon-text-red">
+            <div className="p-3 maya-mono text-xs uppercase tracking-wide text-[var(--text-secondary)]">
               ERROR: {error}
               <button
                 onClick={loadDevices}
-                className="block mt-2 text-cyan-400 hover:text-cyan-300 neon-text-subtle"
+                className="block mt-2 text-[var(--accent-warm)]"
               >
                 RETRY
               </button>
@@ -254,11 +256,11 @@ export const MicSelector: React.FC<MicSelectorProps> = ({
           )}
 
           {!hasPermission && !error && (
-            <div className="p-3 font-holo-label text-yellow-400">
+            <div className="p-3 maya-mono text-xs uppercase tracking-wide text-[var(--text-secondary)]">
               PERMISSION_REQUIRED
               <button
                 onClick={loadDevices}
-                className="block mt-2 text-cyan-400 hover:text-cyan-300 neon-text-subtle"
+                className="block mt-2 text-[var(--accent-warm)]"
               >
                 GRANT_ACCESS
               </button>
@@ -266,17 +268,17 @@ export const MicSelector: React.FC<MicSelectorProps> = ({
           )}
 
           {devices.length === 0 && !loading && !error && (
-            <div className="p-3 font-holo-label text-zinc-500">NO_DEVICES_FOUND</div>
+            <div className="p-3 maya-mono text-xs uppercase tracking-wide text-[var(--text-secondary)]">NO_DEVICES_FOUND</div>
           )}
 
           {devices.map((device) => (
             <button
               key={device.deviceId}
               onClick={() => handleDeviceSelect(device.deviceId)}
-              className={`w-full px-3 py-2 text-left font-holo-label transition-colors ${
+              className={`w-full px-3 py-2 text-left maya-mono text-xs uppercase tracking-wide transition-colors ${
                 device.deviceId === selectedDevice
-                  ? 'glass-light text-cyan-400 border-l-2 border-cyan-500 neon-text-subtle shadow-[0_0_8px_rgba(34,211,238,0.1)]'
-                  : 'text-zinc-400 hover:text-cyan-400 hover:bg-[rgba(34,211,238,0.05)]'
+                  ? 'bg-[var(--glass-hover)] text-[var(--text-primary)] border-l-2 border-[var(--accent-warm)]'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--glass)]'
               }`}
             >
               {device.label}

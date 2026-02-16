@@ -21,19 +21,36 @@ type ChatTurn = {
   text: string;
 };
 
+export type MayaModelProvider = 'google' | 'anthropic' | 'xai' | 'mistral';
+
+export type MayaResponsePayload = {
+  content: string;
+  model: string;
+  provider: MayaModelProvider;
+  tokens: number;
+  latencyMs: number;
+};
+
 type LlmResponsePayload = {
   content?: string;
   response_text?: string;
   text?: string;
   response?: string;
   error?: string;
+  model?: string;
+  provider?: MayaModelProvider;
+  tokens?: number;
 };
 
-export const generateMayaResponse = async (history: ChatTurn[], newMessage: string) => {
+export const generateMayaResponse = async (
+  history: ChatTurn[],
+  newMessage: string,
+  model: string = 'gemini-3-flash-preview'
+): Promise<MayaResponsePayload> => {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseKey = import.meta.env.VITE_SUPABASE_KEY;
   if (!supabaseUrl || !supabaseKey) {
-    return "ERR: SUPABASE_ENV_MISSING. CHECK VITE_SUPABASE_URL/VITE_SUPABASE_KEY.";
+    throw new Error('SUPABASE_ENV_MISSING. CHECK VITE_SUPABASE_URL/VITE_SUPABASE_KEY.');
   }
 
   try {
@@ -47,6 +64,7 @@ export const generateMayaResponse = async (history: ChatTurn[], newMessage: stri
     });
 
     console.log('[MJRVS] System prompt loaded:', SYSTEM_PROMPT.substring(0, 80));
+    const requestStart = performance.now();
     const response = await fetch(`${supabaseUrl}/functions/v1/mjrvs_llm`, {
       method: 'POST',
       headers: {
@@ -55,15 +73,16 @@ export const generateMayaResponse = async (history: ChatTurn[], newMessage: stri
       },
       body: JSON.stringify({
         action: 'chat',
-        model: 'gemini-3-flash-preview',
+        model,
         system_prompt: SYSTEM_PROMPT,
         messages,
         temperature: 0.7,
       }),
     });
+    const latencyMs = Math.round(performance.now() - requestStart);
 
     if (response.status === 404) {
-      return "ERR: mjrvs_llm not yet deployed";
+      throw new Error('mjrvs_llm not yet deployed');
     }
 
     if (!response.ok) {
@@ -75,18 +94,24 @@ export const generateMayaResponse = async (history: ChatTurn[], newMessage: stri
         const fallbackText = await response.text().catch(() => '');
         if (fallbackText) errorMessage = `${errorMessage}: ${fallbackText}`;
       }
-      return `ERR: PROCESSING_FAILURE [${errorMessage}]`;
+      throw new Error(errorMessage);
     }
 
     const payload = await response.json() as LlmResponsePayload;
     const text = payload.content || payload.response_text || payload.text || payload.response || '';
-    if (!text) return "ERR: NO_RESPONSE_DATA";
+    if (!text) throw new Error('NO_RESPONSE_DATA');
     console.log("Maya response (first 100 chars):", text.substring(0, 100));
-    return text;
+    return {
+      content: text,
+      model: payload.model || model,
+      provider: payload.provider || 'google',
+      tokens: payload.tokens ?? 0,
+      latencyMs,
+    };
 
   } catch (error: unknown) {
     console.error("MAYA CORE FAILURE:", error);
     const errorMessage = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
-    return `ERR: PROCESSING_FAILURE [${errorMessage}]`;
+    throw new Error(`PROCESSING_FAILURE [${errorMessage}]`);
   }
 };

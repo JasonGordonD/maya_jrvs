@@ -9,10 +9,10 @@ interface TactileButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 }
 
 const stateStyles: Record<ButtonState, string> = {
-  offline: 'border-red-500/40 text-red-400 shadow-[0_0_8px_rgba(239,68,68,0.15)] animate-[heartbeat_2s_ease-in-out_infinite]',
-  online: 'border-cyan-400/50 text-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.2)]',
-  error: 'border-red-500/60 text-red-400 shadow-[0_0_12px_rgba(239,68,68,0.25)]',
-  default: 'border-zinc-700 text-zinc-400',
+  offline: 'maya-btn-offline',
+  online: 'maya-btn-online',
+  error: 'maya-btn-error',
+  default: 'maya-btn-default',
 };
 
 const TactileButton: React.FC<TactileButtonProps> = ({
@@ -47,17 +47,7 @@ const TactileButton: React.FC<TactileButtonProps> = ({
       ref={btnRef}
       onClick={handleClick}
       className={[
-        // Chamfered hex shape via clip-path
-        '[clip-path:polygon(8px_0%,calc(100%-8px)_0%,100%_8px,100%_calc(100%-8px),calc(100%-8px)_100%,8px_100%,0%_calc(100%-8px),0%_8px)]',
-        // Base styling
-        'relative px-5 py-2.5 font-mono text-xs font-bold uppercase tracking-[0.15em]',
-        'border bg-black/60 backdrop-blur-sm',
-        'transition-all duration-150 ease-out',
-        // Hover
-        'hover:brightness-125 hover:shadow-[0_0_15px_rgba(34,211,238,0.25)]',
-        // Active press
-        'active:scale-95 active:brightness-150',
-        // State
+        'maya-btn relative px-4 py-2 text-[11px] uppercase tracking-[0.12em] transition-all duration-150 ease-out',
         stateStyles[state],
         className,
       ].join(' ')}

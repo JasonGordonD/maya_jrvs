@@ -14,12 +14,12 @@ const GlassPanel: React.FC<GlassPanelProps> = ({
   ...props
 }) => {
   const variants = {
-    default: 'glass-panel',
-    heavy: 'glass-heavy',
-    light: 'glass-light',
+    default: 'maya-panel',
+    heavy: 'maya-panel maya-panel-heavy',
+    light: 'maya-panel maya-panel-light',
   };
 
-  const glowClass = glow ? 'neon-border' : '';
+  const glowClass = glow ? 'maya-panel-accent' : '';
 
   return (
     <div

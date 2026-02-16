@@ -7,6 +7,10 @@ export interface TranscriptItem {
   metadata?: {
     memory_hit?: boolean;
     tool_call?: string;
+    token_count?: number;
+    model?: string;
+    provider?: 'google' | 'anthropic' | 'xai' | 'mistral';
+    latency_ms?: number;
   };
 }
 
