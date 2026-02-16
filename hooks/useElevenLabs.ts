@@ -1,17 +1,30 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { buildSupabaseAuthHeaders, getBrowserSupabaseConfig } from '../services/supabaseConfig';
 
-export type TTSEngine = 'ELEVEN_V3' | 'ELEVEN_FLASH';
+export type VoiceSlot = 'PRIMARY' | 'SECONDARY';
 
-const ENGINE_MODEL_MAP: Record<TTSEngine, string> = {
-  ELEVEN_V3: 'eleven_v3',
-  ELEVEN_FLASH: 'eleven_turbo_v2_5',
+export interface VoiceConfig {
+  id: string;
+  label: string;
+}
+
+export const VOICE_OPTIONS: Record<VoiceSlot, VoiceConfig> = {
+  PRIMARY: {
+    id: import.meta.env.VITE_ELEVENLABS_VOICE_ID || 'gE0owC0H9C8SzfDyIUtB',
+    label: import.meta.env.VITE_ELEVENLABS_VOICE_LABEL || 'Maya',
+  },
+  SECONDARY: {
+    id: import.meta.env.VITE_ELEVENLABS_VOICE_ID_ALT || 'gE0owC0H9C8SzfDyIUtB',
+    label: import.meta.env.VITE_ELEVENLABS_VOICE_LABEL_ALT || 'Maya Alt',
+  },
 };
+
+const MODEL_ID = 'eleven_v3';
 
 export const useElevenLabs = () => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [volume, setVolume] = useState(0);
-  const [engine, setEngine] = useState<TTSEngine>('ELEVEN_V3');
+  const [voiceSlot, setVoiceSlot] = useState<VoiceSlot>('PRIMARY');
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
@@ -45,9 +58,8 @@ export const useElevenLabs = () => {
     abortControllerRef.current = new AbortController();
 
     try {
-      const voiceId = import.meta.env.VITE_ELEVENLABS_VOICE_ID || 'gE0owC0H9C8SzfDyIUtB';
+      const voiceId = VOICE_OPTIONS[voiceSlot].id;
       const outputFormat = import.meta.env.VITE_ELEVENLABS_OUTPUT_FORMAT || 'mp3_44100_64';
-      const modelId = ENGINE_MODEL_MAP[engine];
       const { url: supabaseUrl, key: supabaseKey } = getBrowserSupabaseConfig();
 
       if (!supabaseUrl) {
@@ -66,7 +78,7 @@ export const useElevenLabs = () => {
             text,
             voice_id: voiceId,
             output_format: outputFormat,
-            model_id: modelId,
+            model_id: MODEL_ID,
             voice_settings: { stability: 0.5, similarity_boost: 0.75 },
           }),
           signal: abortControllerRef.current.signal,
@@ -130,5 +142,5 @@ export const useElevenLabs = () => {
     return () => clearInterval(interval);
   }, [isSpeaking]);
 
-  return { speak, stop, isSpeaking, volume, engine, setEngine };
+  return { speak, stop, isSpeaking, volume, voiceSlot, setVoiceSlot };
 };

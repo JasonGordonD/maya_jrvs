@@ -18,7 +18,7 @@ import {
 
 import { TranscriptItem, ErrorLogEntry } from './types';
 import { Message, MessageContent, ConversationEmptyState } from './Message';
-import { useElevenLabs } from './hooks/useElevenLabs';
+import { useElevenLabs, VOICE_OPTIONS } from './hooks/useElevenLabs';
 import { useSpeechToText } from './hooks/useSpeechToText';
 import { generateMayaResponse, MayaModelProvider } from './services/gemini';
 import GlassPanel from './GlassPanel';
@@ -96,8 +96,8 @@ const App: React.FC = () => {
     stop: stopSpeaking,
     isSpeaking,
     volume,
-    engine: ttsEngine,
-    setEngine: setTtsEngine
+    voiceSlot,
+    setVoiceSlot
   } = useElevenLabs();
 
   const addError = useCallback((code: string, message: string, source: ErrorLogEntry['source'], details?: unknown) => {
@@ -377,11 +377,11 @@ const App: React.FC = () => {
           <TactileButton
             state="online"
             icon={<Cpu size={14} />}
-            onClick={() => setTtsEngine((prev) => (prev === 'ELEVEN_V3' ? 'ELEVEN_FLASH' : 'ELEVEN_V3'))}
-            aria-label="Toggle ElevenLabs voice model"
-            title="Toggle ElevenLabs voice model"
+            onClick={() => setVoiceSlot((prev) => (prev === 'PRIMARY' ? 'SECONDARY' : 'PRIMARY'))}
+            aria-label="Toggle voice"
+            title="Toggle voice"
           >
-            {ttsEngine === 'ELEVEN_V3' ? 'Voice: V3' : 'Voice: Flash'}
+            Voice: {VOICE_OPTIONS[voiceSlot].label}
           </TactileButton>
           <TactileButton
             state={sttEngine === 'ELEVEN_LABS_REALTIME' ? 'online' : 'default'}
@@ -448,7 +448,7 @@ const App: React.FC = () => {
                 <ul>
                   <li><span>Turns</span><strong>{transcript.length}</strong></li>
                   <li><span>Duration</span><strong>{formatDuration(sessionDurationMs)}</strong></li>
-                  <li><span>Voice engine</span><strong>{ttsEngine === 'ELEVEN_V3' ? 'ElevenLabs V3' : 'ElevenLabs Flash'}</strong></li>
+                  <li><span>Voice</span><strong>{VOICE_OPTIONS[voiceSlot].label}</strong></li>
                   <li><span>STT</span><strong>{sttEngine === 'ELEVEN_LABS_REALTIME' ? 'Proxy RT' : 'Web Speech'}</strong></li>
                 </ul>
               </section>
