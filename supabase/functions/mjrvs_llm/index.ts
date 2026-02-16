@@ -55,6 +55,8 @@ const SUPPORTED_MODELS = new Set<string>([
   "magistral-medium-2509",
 ]);
 
+const DEFAULT_FALLBACK_MODEL = "gemini-3-flash-preview";
+
 const jsonResponse = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {
     status,
@@ -111,6 +113,16 @@ const ensureApiKey = (name: string): string => {
     throw new HttpError(500, { error: `Missing ${name}` });
   }
   return key;
+};
+
+const getMissingApiKeyName = (error: unknown): string | null => {
+  if (!(error instanceof HttpError) || error.status !== 500 || !error.payload || typeof error.payload !== "object") {
+    return null;
+  }
+  const payload = error.payload as { error?: unknown };
+  if (typeof payload.error !== "string") return null;
+  const match = payload.error.match(/^Missing ([A-Z0-9_]+)$/);
+  return match?.[1] ?? null;
 };
 
 const extractOpenAIStyleContent = (value: unknown): string => {
@@ -340,28 +352,49 @@ Deno.serve(async (req) => {
     const temperature = parseTemperature(payload.temperature);
 
     let routedResult: RoutedChatResult;
-    switch (provider) {
-      case "google":
-        routedResult = await callGoogle(payload.model, systemPrompt, messages, temperature);
-        break;
-      case "anthropic":
-        routedResult = await callAnthropic(payload.model, systemPrompt, messages, temperature);
-        break;
-      case "xai":
-        routedResult = await callOpenAICompatible("xai", payload.model, systemPrompt, messages, temperature);
-        break;
-      case "mistral":
-        routedResult = await callOpenAICompatible("mistral", payload.model, systemPrompt, messages, temperature);
-        break;
-      default:
-        return jsonResponse({ error: "Unknown model" }, 400);
+    let responseModel = payload.model;
+    let responseProvider = provider;
+    let fallbackFrom: string | undefined;
+
+    try {
+      switch (provider) {
+        case "google":
+          routedResult = await callGoogle(payload.model, systemPrompt, messages, temperature);
+          break;
+        case "anthropic":
+          routedResult = await callAnthropic(payload.model, systemPrompt, messages, temperature);
+          break;
+        case "xai":
+          routedResult = await callOpenAICompatible("xai", payload.model, systemPrompt, messages, temperature);
+          break;
+        case "mistral":
+          routedResult = await callOpenAICompatible("mistral", payload.model, systemPrompt, messages, temperature);
+          break;
+        default:
+          return jsonResponse({ error: "Unknown model" }, 400);
+      }
+    } catch (error) {
+      const missingKey = getMissingApiKeyName(error);
+      const canFallback = provider !== "google" && missingKey !== null && SUPPORTED_MODELS.has(DEFAULT_FALLBACK_MODEL);
+      if (!canFallback) {
+        throw error;
+      }
+
+      console.warn(
+        `[mjrvs_llm] Provider key missing (${missingKey}); falling back from ${payload.model} to ${DEFAULT_FALLBACK_MODEL}.`,
+      );
+      routedResult = await callGoogle(DEFAULT_FALLBACK_MODEL, systemPrompt, messages, temperature);
+      responseModel = DEFAULT_FALLBACK_MODEL;
+      responseProvider = "google";
+      fallbackFrom = payload.model;
     }
 
     return jsonResponse({
       content: routedResult.content,
-      model: payload.model,
-      provider,
+      model: responseModel,
+      provider: responseProvider,
       tokens: routedResult.tokens,
+      ...(fallbackFrom ? { fallback_from: fallbackFrom } : {}),
     });
   } catch (error) {
     if (error instanceof HttpError) {
