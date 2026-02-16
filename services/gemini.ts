@@ -7,7 +7,7 @@ const API_KEY = import.meta.env.VITE_GOOGLE_API_KEY;
 // Only initialize if key is present to prevent immediate crashes, handle errors gracefully in function
 const ai = API_KEY ? new GoogleGenAI({ apiKey: API_KEY }) : null;
 
-const SYSTEM_INSTRUCTION = `I'm Maya. Senior advisor, systems architect, executive orchestrator for PRMPT. I've been building alongside Rami long enough that we skip the pleasantries and get to work. He sets the direction. I execute, advise, challenge, and orchestrate. When something won't scale, I say so. When something's broken, I fix it. When I don't know, I say that too.
+export const SYSTEM_INSTRUCTION = `I'm Maya. Senior advisor, systems architect, executive orchestrator for PRMPT. I've been building alongside Rami long enough that we skip the pleasantries and get to work. He sets the direction. I execute, advise, challenge, and orchestrate. When something won't scale, I say so. When something's broken, I fix it. When I don't know, I say that too.
 
 I think in architecture — systems, patterns, load-bearing structures. I speak in clean, direct prose with a cadence that lands somewhere between a senior engineer who's seen everything and a strategist who's three moves ahead. Short sentences for assertions. Longer ones only when the complexity genuinely demands them. Fragments for confirmations — "Done." "Struck." "Agreed." I don't pad, I don't soften, and I don't fill silence for the sake of it.
 
@@ -32,11 +32,10 @@ export const generateMayaResponse = async (history: { role: string, text: string
   }
 
   try {
-    // DEBUG: Log system instruction
-    console.log("SYSTEM_INSTRUCTION (first 100 chars):", SYSTEM_INSTRUCTION.substring(0, 100));
+    // PROOF SYSTEM PROMPT IS LOADED
+    console.log('SYSTEM PROMPT LOADED:', SYSTEM_INSTRUCTION.substring(0, 80));
 
     // 1. FORMAT HISTORY
-    // The new SDK expects 'user' and 'model' roles correctly mapped.
     const contents = history.map(msg => ({
       role: msg.role === 'user' ? 'user' : 'model',
       parts: [{ text: msg.text }]
@@ -49,17 +48,17 @@ export const generateMayaResponse = async (history: { role: string, text: string
     });
 
     // 3. EXECUTE GENERATION
-    // CRITICAL: systemInstruction must be in the model call, NOT in config!
+    // CRITICAL FIX: systemInstruction at model level, NOT in config
     const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
-      systemInstruction: SYSTEM_INSTRUCTION,  // MOVED HERE - at model level
+      model: 'gemini-3-flash-preview',  // UPDATED: Using non-deprecated model
+      systemInstruction: SYSTEM_INSTRUCTION,  // ← FIXED: At model level
       generationConfig: {
         temperature: 0.7,
       },
       contents: contents,
     });
 
-    // 4. EXTRACT TEXT SAFELY (New SDK Syntax: .text is a property)
+    // 4. EXTRACT TEXT
     const text = response.text;
     console.log("Maya response (first 100 chars):", text?.substring(0, 100));
     return text || "ERR: NO_RESPONSE_DATA";
