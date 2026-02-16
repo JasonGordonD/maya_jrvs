@@ -14,7 +14,7 @@ export const VOICE_OPTIONS: Record<VoiceSlot, VoiceConfig> = {
     label: import.meta.env.VITE_ELEVENLABS_VOICE_LABEL || 'Maya',
   },
   SECONDARY: {
-    id: import.meta.env.VITE_ELEVENLABS_VOICE_ID_ALT || 'gE0owC0H9C8SzfDyIUtB',
+    id: import.meta.env.VITE_ELEVENLABS_VOICE_ID_ALT || 'LTdCOVuNg0GlsSue75IB',
     label: import.meta.env.VITE_ELEVENLABS_VOICE_LABEL_ALT || 'Maya Alt',
   },
 };
