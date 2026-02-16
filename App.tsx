@@ -350,6 +350,13 @@ const App: React.FC = () => {
 
         <div className="maya-header-right">
           <TactileButton
+            state={ttsEngine === 'ELEVEN_LABS' ? 'online' : 'default'}
+            icon={<Cpu size={14} />}
+            onClick={() => setTtsEngine((prev) => (prev === 'ELEVEN_LABS' ? 'WEB_NATIVE' : 'ELEVEN_LABS'))}
+          >
+            {ttsEngine === 'ELEVEN_LABS' ? 'Neural' : 'Native'}
+          </TactileButton>
+          <TactileButton
             state={showMicSelector ? 'online' : 'default'}
             icon={<Settings2 size={14} />}
             onClick={() => setShowMicSelector((prev) => !prev)}

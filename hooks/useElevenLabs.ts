@@ -6,7 +6,13 @@ export const useElevenLabs = () => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [volume, setVolume] = useState(0);
   const autoMode = import.meta.env.VITE_ELEVENLABS_AUTO_MODE === 'true';
-  const [engine, setEngine] = useState<TTSEngine>(autoMode ? 'ELEVEN_LABS' : 'ELEVEN_LABS');
+  const preferredEngine = import.meta.env.VITE_TTS_ENGINE;
+  const initialEngine: TTSEngine = preferredEngine === 'ELEVEN_LABS' || preferredEngine === 'WEB_NATIVE'
+    ? preferredEngine
+    : autoMode
+    ? 'ELEVEN_LABS'
+    : 'WEB_NATIVE';
+  const [engine, setEngine] = useState<TTSEngine>(initialEngine);
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null); 
@@ -34,6 +40,38 @@ export const useElevenLabs = () => {
     setVolume(0);
   }, []);
 
+  const speakWithWebNative = useCallback((text: string) => {
+    try {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+
+      const voices = speechSynthRef.current.getVoices();
+      const preferredVoice = voices.find((voice) => voice.name.includes('Samantha')) ||
+        voices.find((voice) => voice.name.includes('Google US English')) ||
+        voices.find((voice) => voice.lang === 'en-US');
+
+      if (preferredVoice) utterance.voice = preferredVoice;
+
+      utterance.onend = () => {
+        setIsSpeaking(false);
+        setVolume(0);
+      };
+
+      utterance.onerror = (event) => {
+        console.error('Native TTS Error:', event);
+        setIsSpeaking(false);
+        setVolume(0);
+      };
+
+      speechSynthRef.current.speak(utterance);
+    } catch (error) {
+      console.error('Native TTS Failed:', error);
+      setIsSpeaking(false);
+      setVolume(0);
+    }
+  }, []);
+
   const speak = async (text: string) => {
     if (!text) return;
     
@@ -42,38 +80,8 @@ export const useElevenLabs = () => {
     setIsSpeaking(true);
 
     if (engine === 'WEB_NATIVE') {
-        // --- WEB NATIVE MODE ---
-        try {
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.rate = 1.0;
-            utterance.pitch = 1.0;
-            
-            // Try to find a good female voice
-            const voices = speechSynthRef.current.getVoices();
-            const preferredVoice = voices.find(v => v.name.includes('Samantha')) || 
-                                   voices.find(v => v.name.includes('Google US English')) ||
-                                   voices.find(v => v.lang === 'en-US');
-            
-            if (preferredVoice) utterance.voice = preferredVoice;
-
-            utterance.onend = () => {
-                setIsSpeaking(false);
-                setVolume(0);
-            };
-
-            utterance.onerror = (e) => {
-                console.error("Native TTS Error:", e);
-                setIsSpeaking(false);
-                setVolume(0);
-            };
-
-            // Speak
-            speechSynthRef.current.speak(utterance);
-
-        } catch (err) {
-            console.error("Native TTS Failed:", err);
-            setIsSpeaking(false);
-        }
+      // --- WEB NATIVE MODE ---
+      speakWithWebNative(text);
 
     } else {
         // --- ELEVEN LABS MODE ---
@@ -110,7 +118,10 @@ export const useElevenLabs = () => {
             }
           );
 
-          if (!response.ok) throw new Error(`TTS proxy failed: ${response.status}`);
+          if (!response.ok) {
+            const failureBody = await response.text().catch(() => '');
+            throw new Error(`TTS proxy failed: ${response.status}${failureBody ? ` ${failureBody}` : ''}`);
+          }
 
           const audioBlob = await response.blob();
           const audioUrl = URL.createObjectURL(audioBlob);
@@ -131,11 +142,14 @@ export const useElevenLabs = () => {
         } catch (error: any) {
           if (error.name === 'AbortError') {
             console.log('Playback aborted by user');
+            setIsSpeaking(false);
+            setVolume(0);
           } else {
             console.error('VOICE_ERROR:', error);
+            // Fail open to browser-native TTS so user still hears output.
+            setEngine('WEB_NATIVE');
+            speakWithWebNative(text);
           }
-          setIsSpeaking(false);
-          setVolume(0);
         }
     }
   };
