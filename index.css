@@ -776,3 +776,234 @@ body {
     min-width: 100%;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/*  Voice Picker                                                       */
+/* ------------------------------------------------------------------ */
+
+.voice-picker {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+  max-width: 320px;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.voice-picker-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 12px;
+  gap: 8px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-medium);
+  border-radius: 6px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.voice-picker-trigger:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-accent);
+}
+
+.voice-picker-trigger:focus-visible {
+  outline: 2px solid var(--accent-warm);
+  outline-offset: 2px;
+}
+
+.voice-picker-trigger-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.voice-picker-trigger-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.voice-picker-trigger-placeholder {
+  color: var(--text-tertiary);
+}
+
+.voice-picker-chevron {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  transition: transform 0.2s;
+}
+
+.voice-picker-chevron.rotated {
+  transform: rotate(180deg);
+}
+
+.voice-picker-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-medium);
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  animation: voice-picker-in 0.15s ease-out;
+}
+
+@keyframes voice-picker-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.voice-picker-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.voice-picker-search-icon {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.voice-picker-search {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.voice-picker-search::placeholder {
+  color: var(--text-tertiary);
+}
+
+.voice-picker-search-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+}
+
+.voice-picker-search-clear:hover {
+  color: var(--text-primary);
+  background: var(--glass-hover);
+}
+
+.voice-picker-list {
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.voice-picker-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.voice-picker-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.voice-picker-list::-webkit-scrollbar-thumb {
+  background: var(--border-medium);
+  border-radius: 3px;
+}
+
+.voice-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.voice-picker-item:hover,
+.voice-picker-item.focused {
+  background: var(--glass-hover);
+}
+
+.voice-picker-item.selected {
+  background: var(--accent-warm-dim);
+}
+
+.voice-picker-item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.voice-picker-item-name {
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.voice-picker-item-labels {
+  font-size: 10px;
+  font-family: 'IBM Plex Mono', monospace;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.voice-picker-play-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--glass);
+  border: 1px solid var(--border-medium);
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.voice-picker-play-btn:hover {
+  background: var(--accent-warm-dim);
+  color: var(--accent-warm);
+  border-color: var(--border-accent);
+}
+
+.voice-picker-check {
+  color: var(--accent-warm);
+  flex-shrink: 0;
+}
+
+.voice-picker-empty {
+  padding: 20px 10px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-family: 'IBM Plex Mono', monospace;
+}
