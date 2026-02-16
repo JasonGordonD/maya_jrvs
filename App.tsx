@@ -16,7 +16,7 @@ import {
   Volume2
 } from 'lucide-react';
 
-import { TranscriptItem, ErrorLogEntry } from './types';
+import { TranscriptItem, EventLogEntry } from './types';
 import { Message, MessageContent, ConversationEmptyState } from './Message';
 import { useElevenLabs, VOICE_OPTIONS } from './hooks/useElevenLabs';
 import { useSpeechToText } from './hooks/useSpeechToText';
@@ -87,7 +87,8 @@ const App: React.FC = () => {
 
   const [systemOnline, setSystemOnline] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [errorLog, setErrorLog] = useState<ErrorLogEntry[]>([]);
+  const [eventLog, setEventLog] = useState<EventLogEntry[]>([]);
+  const [eventLogExpanded, setEventLogExpanded] = useState(false);
 
   const transcriptBottomRef = useRef<HTMLDivElement>(null);
 
@@ -100,19 +101,23 @@ const App: React.FC = () => {
     setVoiceSlot
   } = useElevenLabs();
 
-  const addError = useCallback((code: string, message: string, source: ErrorLogEntry['source'], details?: unknown) => {
-    const detailsSuffix = details ? ` | ${JSON.stringify(details).slice(0, 180)}` : '';
-    setErrorLog((prev) => [
+  const logEvent = useCallback((category: EventLogEntry['category'], code: string, message: string, detail?: string) => {
+    setEventLog((prev) => [
       {
         id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
         timestamp: new Date(),
+        category,
         code,
-        message: `${message}${detailsSuffix}`,
-        source
+        message,
+        detail,
       },
-      ...prev
+      ...prev.slice(0, 99),
     ]);
-    console.error(`[${source}] ${code}: ${message}`, details);
+    if (category === 'ERROR') {
+      console.error(`[${category}] ${code}: ${message}`, detail);
+    } else {
+      console.log(`[${category}] ${code}: ${message}`, detail ?? '');
+    }
   }, []);
 
   const handleUserInput = useCallback(async (text: string, skipTTS = false) => {
@@ -132,6 +137,8 @@ const App: React.FC = () => {
       const response = await generateMayaResponse(history, text, selectedModel);
       setLatencyByModel((prev) => ({ ...prev, [selectedModel]: response.latencyMs }));
 
+      logEvent('LLM', 'RESPONSE_OK', `${response.provider}/${response.model}`, `${response.tokens} tokens · ${response.latencyMs}ms`);
+
       const modelMessage: TranscriptItem = {
         id: `${Date.now() + 1}`,
         role: 'model',
@@ -147,14 +154,12 @@ const App: React.FC = () => {
       setTranscript((prev) => [...prev, modelMessage]);
 
       if (!skipTTS && systemOnline) {
+        logEvent('TTS', 'TTS_START', `Voice: ${VOICE_OPTIONS[voiceSlot].label}`);
         await speak(response.content);
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      addError('INTELLIGENCE_FAILURE', message, 'SYSTEM', {
-        input: text.slice(0, 120),
-        transcriptLength: transcript.length
-      });
+      logEvent('ERROR', 'LLM_FAILURE', message, `model=${selectedModel} · input="${text.slice(0, 80)}"`);
       setTranscript((prev) => [
         ...prev,
         {
@@ -167,7 +172,7 @@ const App: React.FC = () => {
     } finally {
       setIsProcessing(false);
     }
-  }, [addError, isProcessing, selectedModel, speak, systemOnline, transcript]);
+  }, [logEvent, isProcessing, selectedModel, speak, systemOnline, transcript, voiceSlot]);
 
   const handleUserSpeech = useCallback((text: string) => {
     handleUserInput(text, false);
@@ -192,7 +197,7 @@ const App: React.FC = () => {
 
   const handleImageUpload = useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) {
-      addError('VISION_ERROR', 'File must be an image.', 'SYSTEM');
+      logEvent('ERROR', 'VISION_ERROR', 'File must be an image.');
       return;
     }
 
@@ -248,10 +253,12 @@ const App: React.FC = () => {
 
       const result = await response.json() as { analysis_text?: string };
       const analysis = result.analysis_text || 'No analysis text returned.';
+      logEvent('VISION', 'ANALYSIS_OK', `${file.name}`, analysis.slice(0, 120));
 
       const history = [...transcript, userImageMessage].map((item) => ({ role: item.role, text: item.text }));
       const mayaResponse = await generateMayaResponse(history, `[Vision analysis of uploaded image "${file.name}"]: ${analysis}`, selectedModel);
       setLatencyByModel((prev) => ({ ...prev, [selectedModel]: mayaResponse.latencyMs }));
+      logEvent('LLM', 'VISION_RESPONSE', `${mayaResponse.provider}/${mayaResponse.model}`, `${mayaResponse.tokens} tokens · ${mayaResponse.latencyMs}ms`);
 
       const modelMessage: TranscriptItem = {
         id: `${Date.now() + 1}`,
@@ -272,11 +279,11 @@ const App: React.FC = () => {
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unknown vision failure';
-      addError('VISION_FAILURE', message, 'SYSTEM', { fileName: file.name });
+      logEvent('ERROR', 'VISION_FAILURE', message, file.name);
     } finally {
       setIsProcessing(false);
     }
-  }, [addError, selectedModel, speak, supabaseKey, supabaseUrl, systemOnline, transcript]);
+  }, [logEvent, selectedModel, speak, supabaseKey, supabaseUrl, systemOnline, transcript]);
 
   useEffect(() => {
     if (!systemOnline || micMuted) {
@@ -300,11 +307,11 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const handleGlobalError = (event: ErrorEvent) => {
-      addError('UNCAUGHT_EXCEPTION', event.message || 'Unknown script error', 'SYSTEM');
+      logEvent('ERROR', 'UNCAUGHT_EXCEPTION', event.message || 'Unknown script error');
     };
     window.addEventListener('error', handleGlobalError);
     return () => window.removeEventListener('error', handleGlobalError);
-  }, [addError]);
+  }, [logEvent]);
 
   const selectedModelConfig = useMemo(
     () => MODEL_OPTIONS.find((option) => option.model === selectedModel) || MODEL_OPTIONS[0],
@@ -417,10 +424,12 @@ const App: React.FC = () => {
                 setMicMuted(true);
                 setShowMicSelector(false);
                 setSystemOnline(false);
+                logEvent('SYSTEM', 'OFFLINE', 'System taken offline');
                 return;
               }
               setMicMuted(false);
               setSystemOnline(true);
+              logEvent('SYSTEM', 'ONLINE', `Model: ${selectedModel}`, `Voice: ${VOICE_OPTIONS[voiceSlot].label} · STT: ${sttEngine}`);
             }}
           >
             {systemOnline ? 'Online' : 'Offline'}
@@ -526,11 +535,20 @@ const App: React.FC = () => {
         <form onSubmit={handleTextSubmit} className="maya-input-bar">
           <button
             type="button"
-            className={`maya-voice-button ${systemOnline && (isListening || isSpeaking) ? 'active' : ''}`}
-            onClick={() => setMicMuted((prev) => !prev)}
+            className={`maya-voice-button ${isListening ? 'active' : ''}`}
+            onClick={() => {
+              if (isListening) {
+                stopListening();
+                setMicMuted(true);
+              } else {
+                setMicMuted(false);
+                if (!systemOnline) setSystemOnline(true);
+                startListening();
+              }
+            }}
             aria-label="Toggle microphone"
           >
-            <Volume2 size={14} />
+            <Mic size={14} />
           </button>
 
           <input
@@ -554,7 +572,7 @@ const App: React.FC = () => {
       </div>
 
       <footer className="maya-footer maya-mono">
-        PRMPT · MAYA JRVS v3.0
+        PRMPT · MAYA JRVS v3.1
       </footer>
 
       {showMicSelector && (
@@ -590,10 +608,35 @@ const App: React.FC = () => {
         </GlassPanel>
       )}
 
-      {errorLog.length > 0 && (
-        <div className="maya-error-pill">
-          <FileWarning size={12} />
-          <span>{errorLog[0].code}</span>
+      {eventLog.length > 0 && (
+        <div className="maya-event-log">
+          <div
+            className="maya-event-log-header"
+            onClick={() => setEventLogExpanded((prev) => !prev)}
+          >
+            <div className="maya-event-log-header-left">
+              <FileWarning size={12} />
+              <span>Event log</span>
+              <span className="maya-event-log-badge">{eventLog.length}</span>
+            </div>
+            <span>{eventLogExpanded ? '▾' : '▸'}</span>
+          </div>
+          {eventLogExpanded && (
+            <div className="maya-event-log-body maya-scrollbar">
+              {eventLog.slice(0, 50).map((entry) => (
+                <div key={entry.id} className="maya-event-log-entry">
+                  <div className="maya-event-log-row">
+                    <span className="maya-event-log-code">[{entry.category}] {entry.code}</span>
+                    <span className="maya-event-log-time">
+                      {entry.timestamp.toLocaleTimeString('en-US', { hour12: false })}
+                    </span>
+                  </div>
+                  <div className="maya-event-log-detail">{entry.message}</div>
+                  {entry.detail && <div className="maya-event-log-detail">{entry.detail}</div>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

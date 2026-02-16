@@ -57,10 +57,16 @@ export interface MayaState {
   }[];
 }
 
-export interface ErrorLogEntry {
+export type EventCategory = 'ERROR' | 'LLM' | 'TTS' | 'VISION' | 'STT' | 'SYSTEM';
+
+export interface EventLogEntry {
   id: string;
   timestamp: Date;
+  category: EventCategory;
   code: string;
   message: string;
-  source: 'SYSTEM' | 'VOICE_AGENT' | 'NETWORK';
+  detail?: string;
 }
+
+/** @deprecated Use EventLogEntry */
+export type ErrorLogEntry = EventLogEntry;

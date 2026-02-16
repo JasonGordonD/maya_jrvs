@@ -11,11 +11,11 @@ export interface VoiceConfig {
 export const VOICE_OPTIONS: Record<VoiceSlot, VoiceConfig> = {
   PRIMARY: {
     id: import.meta.env.VITE_ELEVENLABS_VOICE_ID || 'gE0owC0H9C8SzfDyIUtB',
-    label: import.meta.env.VITE_ELEVENLABS_VOICE_LABEL || 'Maya',
+    label: import.meta.env.VITE_ELEVENLABS_VOICE_LABEL || 'Native',
   },
   SECONDARY: {
     id: import.meta.env.VITE_ELEVENLABS_VOICE_ID_ALT || 'LTdCOVuNg0GlsSue75IB',
-    label: import.meta.env.VITE_ELEVENLABS_VOICE_LABEL_ALT || 'Maya Alt',
+    label: import.meta.env.VITE_ELEVENLABS_VOICE_LABEL_ALT || 'ElevenLabs',
   },
 };
 
