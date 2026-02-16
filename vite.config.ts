@@ -6,6 +6,11 @@ export default defineConfig({
   server: {
     port: 3001,
     host: '0.0.0.0',
+    allowedHosts: ['.onrender.com'],
+  },
+  preview: {
+    host: '0.0.0.0',
+    allowedHosts: ['.onrender.com'],
   },
   build: {
     chunkSizeWarningLimit: 1000,
