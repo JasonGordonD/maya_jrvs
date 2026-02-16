@@ -1,8 +1,8 @@
 import React, { memo } from 'react';
 import { Streamdown } from 'streamdown';
 
-interface ResponseProps extends React.ComponentProps<typeof Streamdown> {
-  children: React.ReactNode;
+interface ResponseProps extends Omit<React.ComponentProps<typeof Streamdown>, 'children'> {
+  children: string;
   className?: string;
 }
 

@@ -53,12 +53,12 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const validateFile = (file: File): string | null => {
+  const validateFile = (file: File): string | undefined => {
     const maxSizeBytes = maxSize * 1024 * 1024;
     if (file.size > maxSizeBytes) {
       return `FILE_SIZE_EXCEEDS_${maxSize}MB`;
     }
-    return null;
+    return undefined;
   };
 
   const createFilePreview = async (file: File): Promise<string | undefined> => {

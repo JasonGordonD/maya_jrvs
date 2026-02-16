@@ -2,16 +2,14 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import {
   MessageSquare, X, BrainCircuit, Activity,
   Terminal, Radio, Loader2, Settings2,
-  Shield, GraduationCap, Volume2, Unlink, MonitorUp, Lock, FileWarning, Bug, Cpu, TestTube, Image, Upload, Send, Mic
+  Shield, GraduationCap, Volume2, Unlink, Lock, FileWarning, Bug, Cpu, TestTube, Image, Upload, Send, Mic
 } from 'lucide-react';
 
 import { TranscriptItem, MayaState, ErrorLogEntry } from './types';
 import {
-  Message, MessageContent,
-  Conversation as ConversationUI, ConversationContent, ConversationEmptyState, ConversationScrollButton
+  Message, MessageContent
 } from './Message';
 import { RadarChart } from './RadarChart';
-import { ControlDeck } from './components/ControlDeck';
 import { useElevenLabs } from './hooks/useElevenLabs';
 import { useSpeechToText } from './hooks/useSpeechToText';
 import { generateMayaResponse } from './services/gemini';
@@ -31,6 +29,14 @@ const INITIAL_MAYA_STATE: MayaState = {
 };
 
 type SecurityLevel = 'safe' | 'caution' | 'critical';
+type ThemeConfig = {
+  text: string;
+  border: string;
+  borderDim: string;
+  orbColor: string;
+  glow: string;
+  animate?: string;
+};
 
 /**
  * MayaOrb: High-performance reactive visualizer with gyroscopic rings,
@@ -256,12 +262,21 @@ const App: React.FC = () => {
   const { speak, stop: stopSpeaking, isSpeaking, volume, engine: ttsEngine, setEngine: setTtsEngine } = useElevenLabs();
 
   // --- ERROR LOGGING ---
-  const addError = useCallback((code: string, message: string, source: ErrorLogEntry['source'], details?: any) => {
+  const addError = useCallback((code: string, message: string, source: ErrorLogEntry['source'], details?: unknown) => {
+    let detailSuffix = '';
+    if (details !== undefined) {
+      try {
+        detailSuffix = ` | Details: ${JSON.stringify(details).slice(0, 200)}`;
+      } catch {
+        detailSuffix = ' | Details: [unserializable]';
+      }
+    }
+
     const errorEntry = {
       id: Date.now().toString() + Math.random().toString(),
       timestamp: new Date(),
       code,
-      message: details ? `${message} | Details: ${JSON.stringify(details).slice(0, 200)}` : message,
+      message: `${message}${detailSuffix}`,
       source
     };
     setErrorLog(prev => [errorEntry, ...prev]);
@@ -306,9 +321,10 @@ const App: React.FC = () => {
       if (!skipTTS && systemOnline) {
         await speak(responseText);
       }
-    } catch (err: any) {
-      addError("INTELLIGENCE_FAILURE", err.message || "Unknown Error", "SYSTEM", {
-        stack: err.stack?.slice(0, 300),
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : "Unknown Error";
+      addError("INTELLIGENCE_FAILURE", errorMessage, "SYSTEM", {
+        stack: err instanceof Error ? err.stack?.slice(0, 300) : undefined,
         input: text.slice(0, 100),
         transcriptLength: transcript.length
       });
@@ -401,12 +417,13 @@ const App: React.FC = () => {
         await speak("Image analyzed. Ask me about what you see.");
       }
 
-    } catch (err: any) {
-      addError("VISION_FAILURE", err.message || "Unknown Error", "SYSTEM", {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : "Unknown Error";
+      addError("VISION_FAILURE", errorMessage, "SYSTEM", {
         fileName: file.name,
         fileSize: file.size,
         fileType: file.type,
-        error: err.toString()
+        error: err instanceof Error ? err.toString() : String(err)
       });
     } finally {
       setIsProcessing(false);
@@ -456,7 +473,7 @@ const App: React.FC = () => {
   }, [addError]);
 
   // --- THEME ---
-  const theme = useMemo(() => {
+  const theme = useMemo<ThemeConfig>(() => {
     switch (securityLevel) {
       case 'caution':
         return { text: 'text-yellow-400', border: 'border-yellow-500', borderDim: 'border-yellow-900/40', orbColor: 'rgba(234, 179, 8, 0.4)', glow: 'phosphor-glow-yellow' };
@@ -785,7 +802,7 @@ const App: React.FC = () => {
   );
 };
 
-const PersonalitySlider: React.FC<{ label: string; icon: React.ReactNode; value: number; onChange: (val: number) => void; theme: any }> = ({ label, icon, value, onChange, theme }) => (
+const PersonalitySlider: React.FC<{ label: string; icon: React.ReactNode; value: number; onChange: (val: number) => void; theme: ThemeConfig }> = ({ label, icon, value, onChange, theme }) => (
   <div className="space-y-4">
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-2.5">

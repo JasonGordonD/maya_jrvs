@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { User, Bot, ArrowDown, BrainCircuit, Check, CheckCheck, Sparkles, Command, Zap, Database, Cpu, Activity, UserCircle, Mic } from 'lucide-react';
+import { User, Bot, ArrowDown, BrainCircuit, CheckCheck, Database, Cpu, Activity } from 'lucide-react';
 import { StickToBottom, useStickToBottomContext } from 'use-stick-to-bottom';
 
 interface MessageProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -162,18 +162,17 @@ export const Conversation: React.FC<ConversationProps> = ({
   </StickToBottom>
 );
 
-interface ConversationContentProps extends React.ComponentProps<typeof StickToBottom.Content> {
+interface ConversationContentProps {
+  children?: React.ReactNode;
   className?: string;
 }
 
 export const ConversationContent: React.FC<ConversationContentProps> = ({
   children,
-  className = '',
-  ...props
+  className = ''
 }) => (
   <StickToBottom.Content
     className={`flex-1 overflow-y-auto p-8 scroll-smooth holo-scrollbar ${className}`}
-    {...props}
   >
     <div className="flex flex-col w-full max-w-4xl mx-auto">
       {children}
@@ -209,6 +208,7 @@ interface ConversationScrollButtonProps extends React.ButtonHTMLAttributes<HTMLB
 
 export const ConversationScrollButton: React.FC<ConversationScrollButtonProps> = ({
   className = '',
+  onClick,
   ...props
 }) => {
   const { isAtBottom, scrollToBottom } = useStickToBottomContext();
@@ -217,7 +217,10 @@ export const ConversationScrollButton: React.FC<ConversationScrollButtonProps> =
 
   return (
     <button
-      onClick={scrollToBottom}
+      onClick={(event) => {
+        scrollToBottom();
+        onClick?.(event);
+      }}
       className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-50
         flex items-center gap-2 px-4 py-2
         glass-heavy neon-border-strong

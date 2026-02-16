@@ -2,13 +2,46 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 
 export type STTEngine = 'WEB_SPEECH' | 'ELEVEN_LABS_REALTIME';
 
+type SpeechRecognitionAlternativeLike = {
+  transcript: string;
+};
+
+type SpeechRecognitionResultLike = {
+  isFinal: boolean;
+  [index: number]: SpeechRecognitionAlternativeLike;
+};
+
+type SpeechRecognitionEventLike = {
+  resultIndex: number;
+  results: ArrayLike<SpeechRecognitionResultLike>;
+};
+
+type SpeechRecognitionErrorEventLike = {
+  error: string;
+};
+
+type WebSpeechRecognition = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  readyState?: string;
+  onstart: (() => void) | null;
+  onend: (() => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionConstructor = new () => WebSpeechRecognition;
+
 export const useSpeechToText = (onFinalTranscript: (text: string) => void) => {
   const [isListening, setIsListening] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState('');
   const [engine, setEngine] = useState<STTEngine>('WEB_SPEECH');
 
   // Web Speech API refs
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<WebSpeechRecognition | null>(null);
 
   // ElevenLabs Realtime refs
   const websocketRef = useRef<WebSocket | null>(null);
@@ -20,7 +53,11 @@ export const useSpeechToText = (onFinalTranscript: (text: string) => void) => {
   useEffect(() => {
     if (engine !== 'WEB_SPEECH') return;
 
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const speechWindow = window as Window & {
+      SpeechRecognition?: SpeechRecognitionConstructor;
+      webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    };
+    const SpeechRecognition = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
 
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
@@ -33,14 +70,14 @@ export const useSpeechToText = (onFinalTranscript: (text: string) => void) => {
         setIsListening(false);
       };
 
-      recognition.onerror = (event: any) => {
+      recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
         if (event.error === 'not-allowed') {
             console.error("Speech Recognition Error:", event.error);
             setIsListening(false);
         }
       };
 
-      recognition.onresult = (event: any) => {
+      recognition.onresult = (event: SpeechRecognitionEventLike) => {
         let final = '';
         let interim = '';
 
@@ -185,7 +222,7 @@ export const useSpeechToText = (onFinalTranscript: (text: string) => void) => {
         try {
           recognitionRef.current.start();
           setIsListening(true);
-        } catch(e) {
+        } catch {
           // Ignore errors if already started
         }
       }

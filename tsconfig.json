@@ -21,10 +21,14 @@
     "jsx": "react-jsx"
   },
   "include": [
+    "./*.d.ts",
     "./*.ts",
     "./*.tsx",
     "./components/**/*.tsx",
+    "./components/**/*.d.ts",
     "./hooks/**/*.ts",
-    "./services/**/*.ts"
+    "./hooks/**/*.d.ts",
+    "./services/**/*.ts",
+    "./services/**/*.d.ts"
   ]
 }
