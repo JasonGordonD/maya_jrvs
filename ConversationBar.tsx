@@ -147,11 +147,11 @@ export const ConversationBar: React.FC<ConversationBarProps> = ({
   const getStatusColor = () => {
     switch (conversation.status) {
       case 'connected':
-        return 'text-cyan-400 phosphor-glow';
+        return 'text-[var(--accent-warm)]';
       case 'connecting':
-        return 'text-yellow-400 animate-pulse';
+        return 'text-[var(--text-primary)] animate-pulse';
       default:
-        return 'text-zinc-600';
+        return 'text-[var(--text-secondary)]';
     }
   };
 
@@ -163,12 +163,14 @@ export const ConversationBar: React.FC<ConversationBarProps> = ({
   };
 
   return (
-    <div className={`flex flex-col gap-3 p-4 glass-panel neon-border ${className}`}>
+    <div className={`flex flex-col gap-3 p-4 maya-panel maya-panel-heavy ${className}`}>
       {/* Status Bar */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className={`w-2 h-2 ${conversation.status === 'connected' ? 'bg-cyan-400 animate-pulse shadow-[0_0_8px_rgba(34,211,238,0.6)]' : conversation.status === 'connecting' ? 'bg-yellow-400 animate-pulse' : 'bg-zinc-700'}`} />
-          <span className={`font-holo-label ${getStatusColor()}`}>
+          <span className={`status-dot ${conversation.status === 'connected' ? 'active' : ''}`}>
+            {conversation.status === 'connected' && <span className="status-dot-ring" />}
+          </span>
+          <span className={`maya-mono text-[10px] uppercase tracking-[0.12em] ${getStatusColor()}`}>
             {getStatusText()}
           </span>
         </div>
@@ -212,7 +214,7 @@ export const ConversationBar: React.FC<ConversationBarProps> = ({
 
       {/* Waveform Visualization */}
       {conversation.status === 'connected' && !isMicMuted && (
-        <div className="flex items-center justify-center gap-0.5 h-16 glass-light neon-border p-2">
+        <div className="flex items-center justify-center gap-0.5 h-16 maya-surface border border-[var(--border-subtle)] p-2">
           {waveformData.map((value, i) => (
             <div
               key={i}
@@ -220,8 +222,8 @@ export const ConversationBar: React.FC<ConversationBarProps> = ({
               style={{
                 height: `${value * 100}%`,
                 opacity: 0.4 + value * 0.6,
-                background: `linear-gradient(to top, var(--holo-cyan-30), var(--holo-cyan))`,
-                boxShadow: value > 0.3 ? `0 0 ${Math.round(value * 8)}px var(--holo-cyan-15)` : 'none',
+                background: `linear-gradient(to top, var(--accent-warm-dim), var(--accent-warm))`,
+                boxShadow: value > 0.3 ? `0 0 ${Math.round(value * 8)}px rgba(200,164,110,0.25)` : 'none',
               }}
             />
           ))}
@@ -230,13 +232,13 @@ export const ConversationBar: React.FC<ConversationBarProps> = ({
 
       {/* Text Input */}
       {showTextInput && (
-        <div className="flex items-center gap-2 p-2 glass-light neon-border">
+        <div className="flex items-center gap-2 p-2 maya-surface border border-[var(--border-medium)]">
           <textarea
             value={textInput}
             onChange={(e) => setTextInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="INJECT_TRACE..."
-            className="flex-1 bg-transparent text-zinc-300 font-holo-data text-sm placeholder:text-zinc-700 resize-none outline-none min-h-[40px] max-h-[120px]"
+            className="flex-1 bg-transparent text-[var(--text-primary)] maya-text text-sm placeholder:text-[var(--text-tertiary)] resize-none outline-none min-h-[40px] max-h-[120px]"
             rows={2}
           />
           <TactileButton

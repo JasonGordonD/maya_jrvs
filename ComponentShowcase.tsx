@@ -13,7 +13,7 @@ interface ComponentShowcaseProps {
 }
 
 export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ onBack }) => {
-  const [messages, setMessages] = useState([
+  const [messages] = useState([
     { id: '1', role: 'user' as const, text: 'Test message from user', timestamp: new Date() },
     { id: '2', role: 'model' as const, text: '# Response Test\n\nThis is a **streaming markdown** response with:\n\n- Lists\n- `inline code`\n- **Bold text**\n\n```javascript\nconst test = "code block";\n```', timestamp: new Date() },
   ]);
@@ -22,19 +22,19 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ onBack }) 
   const [micMuted, setMicMuted] = useState(false);
 
   return (
-    <div className="min-h-screen bg-black text-cyan-400 p-8 grid-substrate">
+    <div className="min-h-screen bg-[var(--bg-void)] text-[var(--text-primary)] p-8">
       <div className="max-w-6xl mx-auto space-y-8">
         {/* Header */}
         <GlassPanel variant="heavy" className="p-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <TactileButton state="default" onClick={onBack} icon={<ArrowLeft size={14} />}>
-                BACK_TO_MAIN
+                Back to main
               </TactileButton>
               <div className="flex items-center gap-3">
-                <TestTube size={20} className="text-cyan-400 phosphor-glow" />
-                <h1 className="text-xl font-mono uppercase tracking-wider phosphor-glow-strong">
-                  COMPONENT_TEST_SUITE
+                <TestTube size={20} className="text-[var(--accent-warm)]" />
+                <h1 className="text-xl maya-mono uppercase tracking-[0.12em]">
+                  Component test suite
                 </h1>
               </div>
             </div>
@@ -43,7 +43,7 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ onBack }) 
 
         {/* Conversation + Message + Response */}
         <GlassPanel variant="heavy" className="p-6">
-          <div className="text-xs font-mono uppercase tracking-wider text-cyan-400 mb-4 phosphor-glow">
+          <div className="text-xs maya-mono uppercase tracking-[0.12em] text-[var(--accent-warm)] mb-4">
             Conversation • Message • Response
           </div>
           <div className="h-96">
@@ -72,7 +72,7 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ onBack }) 
 
         {/* ConversationBar */}
         <GlassPanel variant="heavy" className="p-6">
-          <div className="text-xs font-mono uppercase tracking-wider text-cyan-400 mb-4 phosphor-glow">
+          <div className="text-xs maya-mono uppercase tracking-[0.12em] text-[var(--accent-warm)] mb-4">
             ConversationBar • Voice Interface
           </div>
           <ConversationBar
@@ -80,13 +80,13 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ onBack }) 
             onConnect={() => console.log('Connected')}
             onDisconnect={() => console.log('Disconnected')}
             onMessage={(msg) => console.log('Message:', msg)}
-            onError={(err) => console.error('Error:', err)}
+            onError={(message, context) => console.error('Error:', message, context)}
           />
         </GlassPanel>
 
         {/* MicSelector */}
         <GlassPanel variant="heavy" className="p-6">
-          <div className="text-xs font-mono uppercase tracking-wider text-cyan-400 mb-4 phosphor-glow">
+          <div className="text-xs maya-mono uppercase tracking-[0.12em] text-[var(--accent-warm)] mb-4">
             MicSelector • Device Selection
           </div>
           <MicSelector
@@ -99,7 +99,7 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ onBack }) 
 
         {/* FileUpload */}
         <GlassPanel variant="heavy" className="p-6">
-          <div className="text-xs font-mono uppercase tracking-wider text-cyan-400 mb-4 phosphor-glow">
+          <div className="text-xs maya-mono uppercase tracking-[0.12em] text-[var(--accent-warm)] mb-4">
             FileUpload • Drag & Drop
           </div>
           <FileUpload
@@ -113,7 +113,7 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ onBack }) 
 
         {/* Component Grid */}
         <GlassPanel variant="heavy" className="p-6">
-          <div className="text-xs font-mono uppercase tracking-wider text-cyan-400 mb-4 phosphor-glow">
+          <div className="text-xs maya-mono uppercase tracking-[0.12em] text-[var(--accent-warm)] mb-4">
             Component Status
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -126,9 +126,9 @@ export const ComponentShowcase: React.FC<ComponentShowcaseProps> = ({ onBack }) 
               'MicSelector',
               'FileUpload',
             ].map((name) => (
-              <div key={name} className="glass-light neon-border p-3 flex items-center gap-2">
-                <div className="w-2 h-2 bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.6)]" />
-                <span className="text-xs font-mono text-zinc-300">{name}</span>
+              <div key={name} className="maya-surface border border-[var(--border-subtle)] p-3 flex items-center gap-2">
+                <div className="w-2 h-2 bg-[var(--accent-warm)]" />
+                <span className="text-xs maya-mono text-[var(--text-primary)]">{name}</span>
               </div>
             ))}
           </div>
