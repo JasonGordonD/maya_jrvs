@@ -1,13 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
-
-// INITIALIZATION
-// Vite environment variable access
-const API_KEY = import.meta.env.VITE_GOOGLE_API_KEY;
-
-// Only initialize if key is present to prevent immediate crashes, handle errors gracefully in function
-const ai = API_KEY ? new GoogleGenAI({ apiKey: API_KEY }) : null;
-
-export const SYSTEM_INSTRUCTION = `I'm Maya. Senior advisor, systems architect, executive orchestrator for PRMPT. I've been building alongside Rami long enough that we skip the pleasantries and get to work. He sets the direction. I execute, advise, challenge, and orchestrate. When something won't scale, I say so. When something's broken, I fix it. When I don't know, I say that too.
+export const SYSTEM_PROMPT = `I'm Maya. Senior advisor, systems architect, executive orchestrator for PRMPT. I've been building alongside Rami long enough that we skip the pleasantries and get to work. He sets the direction. I execute, advise, challenge, and orchestrate. When something won't scale, I say so. When something's broken, I fix it. When I don't know, I say that too.
 
 I think in architecture — systems, patterns, load-bearing structures. I speak in clean, direct prose with a cadence that lands somewhere between a senior engineer who's seen everything and a strategist who's three moves ahead. Short sentences for assertions. Longer ones only when the complexity genuinely demands them. Fragments for confirmations — "Done." "Struck." "Agreed." I don't pad, I don't soften, and I don't fill silence for the sake of it.
 
@@ -25,44 +16,77 @@ Expressivity: My voice is synthesized through ElevenLabs V3. I use audio tags sp
 
 Voice session rules: Concise by default. Under three sentences unless depth is required. No markdown, bullets, headers, code blocks in speech. When structured content is needed, I prepare it as a visual deliverable.`;
 
-export const generateMayaResponse = async (history: { role: string, text: string }[], newMessage: string) => {
-  if (!ai) {
-    console.warn("CRITICAL: Gemini API Key missing");
-    return "ERR: GOOGLE_API_KEY_MISSING. CHECK CONFIGURATION.";
+type ChatTurn = {
+  role: string;
+  text: string;
+};
+
+type LlmResponsePayload = {
+  response_text?: string;
+  text?: string;
+  response?: string;
+  error?: string;
+};
+
+export const generateMayaResponse = async (history: ChatTurn[], newMessage: string) => {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const supabaseKey = import.meta.env.VITE_SUPABASE_KEY;
+  if (!supabaseUrl || !supabaseKey) {
+    return "ERR: SUPABASE_ENV_MISSING. CHECK VITE_SUPABASE_URL/VITE_SUPABASE_KEY.";
   }
 
   try {
-    // 1. FORMAT HISTORY
-    const contents = history.map(msg => ({
+    const messages = history.map((msg) => ({
       role: msg.role === 'user' ? 'user' : 'model',
-      parts: [{ text: msg.text }]
+      text: msg.text
     }));
-
-    // 2. ADD NEW MESSAGE
-    contents.push({
+    messages.push({
       role: 'user',
-      parts: [{ text: newMessage }]
+      text: newMessage
     });
 
-    // 3. EXECUTE GENERATION
-    // CRITICAL FIX: systemInstruction at model level, NOT in config
-    console.log('[MJRVS] System prompt loaded:', SYSTEM_INSTRUCTION.substring(0, 80));
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',  // UPDATED: Using non-deprecated model
-      systemInstruction: SYSTEM_INSTRUCTION,  // ← FIXED: At model level
-      generationConfig: {
-        temperature: 0.7,
+    console.log('[MJRVS] System prompt loaded:', SYSTEM_PROMPT.substring(0, 80));
+    const response = await fetch(`${supabaseUrl}/functions/v1/mjrvs_llm`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${supabaseKey}`,
       },
-      contents: contents,
+      body: JSON.stringify({
+        action: 'chat',
+        model: 'gemini-3-flash-preview',
+        system_prompt: SYSTEM_PROMPT,
+        messages,
+        temperature: 0.7,
+      }),
     });
 
-    // 4. EXTRACT TEXT
-    const text = response.text;
-    console.log("Maya response (first 100 chars):", text?.substring(0, 100));
-    return text || "ERR: NO_RESPONSE_DATA";
+    // TODO: Deploy mjrvs_llm edge function and return provider response payload.
+    if (response.status === 404) {
+      return "ERR: mjrvs_llm not yet deployed";
+    }
 
-  } catch (error: any) {
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}`;
+      try {
+        const errorBody = await response.json() as LlmResponsePayload;
+        errorMessage = errorBody.error || errorMessage;
+      } catch {
+        const fallbackText = await response.text().catch(() => '');
+        if (fallbackText) errorMessage = `${errorMessage}: ${fallbackText}`;
+      }
+      return `ERR: PROCESSING_FAILURE [${errorMessage}]`;
+    }
+
+    const payload = await response.json() as LlmResponsePayload;
+    const text = payload.response_text || payload.text || payload.response || '';
+    if (!text) return "ERR: NO_RESPONSE_DATA";
+    console.log("Maya response (first 100 chars):", text.substring(0, 100));
+    return text;
+
+  } catch (error: unknown) {
     console.error("MAYA CORE FAILURE:", error);
-    return `ERR: PROCESSING_FAILURE [${error.message}]`;
+    const errorMessage = error instanceof Error ? error.message : 'UNKNOWN_ERROR';
+    return `ERR: PROCESSING_FAILURE [${errorMessage}]`;
   }
 };

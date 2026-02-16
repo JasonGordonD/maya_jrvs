@@ -69,50 +69,54 @@ export const useSpeechToText = (onFinalTranscript: (text: string) => void) => {
   // ElevenLabs Realtime STT
   const startElevenLabsRealtime = useCallback(async () => {
     try {
-      const apiKey = import.meta.env.VITE_ELEVENLABS_API_KEY;
-      if (!apiKey) throw new Error("Missing VITE_ELEVENLABS_API_KEY");
+      const proxyWebsocketUrl = import.meta.env.VITE_STT_PROXY_WS_URL;
+      if (!proxyWebsocketUrl) {
+        // TODO: Route ElevenLabs realtime STT through a server-side proxy WebSocket.
+        console.warn('[MJRVS] STT proxy URL not configured. Falling back to WEB_SPEECH.');
+        setEngine('WEB_SPEECH');
+        setIsListening(false);
+        return;
+      }
 
       // Connect to WebSocket
-      const ws = new WebSocket(
-        `wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime&include_timestamps=true`
-      );
+      const ws = new WebSocket(proxyWebsocketUrl);
 
       ws.onopen = async () => {
-        console.log('ElevenLabs Realtime STT connected');
+        try {
+          console.log('STT proxy websocket connected');
 
-        // Send authentication
-        ws.send(JSON.stringify({
-          type: 'auth',
-          api_key: apiKey,
-        }));
+          // Get microphone stream
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          mediaStreamRef.current = stream;
 
-        // Get microphone stream
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaStreamRef.current = stream;
+          // Setup audio processing
+          const audioContext = new AudioContext({ sampleRate: 16000 });
+          audioContextRef.current = audioContext;
 
-        // Setup audio processing
-        const audioContext = new AudioContext({ sampleRate: 16000 });
-        audioContextRef.current = audioContext;
+          const source = audioContext.createMediaStreamSource(stream);
+          const processor = audioContext.createScriptProcessor(4096, 1, 1);
+          processorRef.current = processor;
 
-        const source = audioContext.createMediaStreamSource(stream);
-        const processor = audioContext.createScriptProcessor(4096, 1, 1);
-        processorRef.current = processor;
-
-        processor.onaudioprocess = (e) => {
-          if (ws.readyState === WebSocket.OPEN) {
-            const inputData = e.inputBuffer.getChannelData(0);
-            const pcm16 = new Int16Array(inputData.length);
-            for (let i = 0; i < inputData.length; i++) {
-              pcm16[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32768));
+          processor.onaudioprocess = (e) => {
+            if (ws.readyState === WebSocket.OPEN) {
+              const inputData = e.inputBuffer.getChannelData(0);
+              const pcm16 = new Int16Array(inputData.length);
+              for (let i = 0; i < inputData.length; i++) {
+                pcm16[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32768));
+              }
+              ws.send(pcm16.buffer);
             }
-            ws.send(pcm16.buffer);
-          }
-        };
+          };
 
-        source.connect(processor);
-        processor.connect(audioContext.destination);
+          source.connect(processor);
+          processor.connect(audioContext.destination);
 
-        setIsListening(true);
+          setIsListening(true);
+        } catch (err) {
+          console.error('[MJRVS] STT setup failed:', err);
+          ws.close();
+          setIsListening(false);
+        }
       };
 
       ws.onmessage = (event) => {
@@ -138,7 +142,7 @@ export const useSpeechToText = (onFinalTranscript: (text: string) => void) => {
       };
 
       ws.onclose = () => {
-        console.log('ElevenLabs Realtime STT disconnected');
+        console.log('STT proxy websocket disconnected');
         setIsListening(false);
       };
 

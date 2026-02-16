@@ -81,22 +81,28 @@ export const useElevenLabs = () => {
         
         try {
           const voiceId = import.meta.env.VITE_ELEVENLABS_VOICE_ID || "gE0owC0H9C8SzfDyIUtB";
-          const apiKey = import.meta.env.VITE_ELEVENLABS_API_KEY;
           const outputFormat = import.meta.env.VITE_ELEVENLABS_OUTPUT_FORMAT || "mp3_44100_64";
           const modelId = import.meta.env.VITE_ELEVENLABS_MODEL_ID || "eleven_v3";
+          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+          const supabaseKey = import.meta.env.VITE_SUPABASE_KEY;
 
-          if (!apiKey) throw new Error("Missing VITE_ELEVENLABS_API_KEY");
+          if (!supabaseUrl || !supabaseKey) {
+            throw new Error("Missing VITE_SUPABASE_URL or VITE_SUPABASE_KEY for TTS proxy.");
+          }
 
+          // TODO: Deploy/enable mjrvs_tts edge function proxy for ElevenLabs server-side key usage.
           const response = await fetch(
-            `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=${outputFormat}`,
+            `${supabaseUrl}/functions/v1/mjrvs_tts`,
             {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'xi-api-key': apiKey,
+                'Authorization': `Bearer ${supabaseKey}`,
               },
               body: JSON.stringify({
                 text,
+                voice_id: voiceId,
+                output_format: outputFormat,
                 model_id: modelId,
                 voice_settings: { stability: 0.5, similarity_boost: 0.75 }
               }),
@@ -104,7 +110,7 @@ export const useElevenLabs = () => {
             }
           );
 
-          if (!response.ok) throw new Error(`TTS Failed: ${response.status}`);
+          if (!response.ok) throw new Error(`TTS proxy failed: ${response.status}`);
 
           const audioBlob = await response.blob();
           const audioUrl = URL.createObjectURL(audioBlob);
