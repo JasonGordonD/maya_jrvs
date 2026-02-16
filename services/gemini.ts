@@ -22,6 +22,7 @@ type ChatTurn = {
 };
 
 type LlmResponsePayload = {
+  content?: string;
   response_text?: string;
   text?: string;
   response?: string;
@@ -38,11 +39,11 @@ export const generateMayaResponse = async (history: ChatTurn[], newMessage: stri
   try {
     const messages = history.map((msg) => ({
       role: msg.role === 'user' ? 'user' : 'model',
-      text: msg.text
+      content: msg.text
     }));
     messages.push({
       role: 'user',
-      text: newMessage
+      content: newMessage
     });
 
     console.log('[MJRVS] System prompt loaded:', SYSTEM_PROMPT.substring(0, 80));
@@ -61,7 +62,6 @@ export const generateMayaResponse = async (history: ChatTurn[], newMessage: stri
       }),
     });
 
-    // TODO: Deploy mjrvs_llm edge function and return provider response payload.
     if (response.status === 404) {
       return "ERR: mjrvs_llm not yet deployed";
     }
@@ -79,7 +79,7 @@ export const generateMayaResponse = async (history: ChatTurn[], newMessage: stri
     }
 
     const payload = await response.json() as LlmResponsePayload;
-    const text = payload.response_text || payload.text || payload.response || '';
+    const text = payload.content || payload.response_text || payload.text || payload.response || '';
     if (!text) return "ERR: NO_RESPONSE_DATA";
     console.log("Maya response (first 100 chars):", text.substring(0, 100));
     return text;
