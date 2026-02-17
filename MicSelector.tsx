@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Mic, MicOff, ChevronDown } from 'lucide-react';
 import TactileButton from './TactileButton';
 
@@ -64,94 +64,6 @@ export const useAudioDevices = () => {
   }, [loadDevices]);
 
   return { devices, loading, error, hasPermission, loadDevices };
-};
-
-/**
- * Live waveform visualization for audio preview
- */
-const LiveWaveform: React.FC<{ deviceId: string; muted: boolean }> = ({ deviceId, muted }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [waveformData, setWaveformData] = useState<number[]>(new Array(50).fill(0));
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const animationFrameRef = useRef<number>(0);
-
-  useEffect(() => {
-    if (muted) return;
-
-    const setupAudio = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { deviceId: deviceId ? { exact: deviceId } : undefined },
-        });
-
-        const audioContext = new AudioContext();
-        const analyser = audioContext.createAnalyser();
-        const source = audioContext.createMediaStreamSource(stream);
-
-        analyser.fftSize = 256;
-        source.connect(analyser);
-
-        streamRef.current = stream;
-        audioContextRef.current = audioContext;
-        analyserRef.current = analyser;
-
-        const updateWaveform = () => {
-          if (!analyserRef.current) return;
-
-          const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
-          analyserRef.current.getByteFrequencyData(dataArray);
-
-          const bars = 50;
-          const step = Math.floor(dataArray.length / bars);
-          const normalized = Array.from({ length: bars }, (_, i) => {
-            const value = dataArray[i * step] / 255;
-            return Math.max(0.02, value);
-          });
-
-          setWaveformData(normalized);
-          animationFrameRef.current = requestAnimationFrame(updateWaveform);
-        };
-
-        updateWaveform();
-      } catch (error) {
-        console.error('Failed to setup audio preview:', error);
-      }
-    };
-
-    setupAudio();
-
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-      }
-    };
-  }, [deviceId, muted]);
-
-  return (
-    <div className="flex items-center gap-0.5 h-8 px-2">
-      {waveformData.map((value, i) => (
-        <div
-          key={i}
-          className="flex-1 transition-all duration-75"
-          style={{
-            height: `${value * 100}%`,
-            opacity: muted ? 0.1 : 0.3 + value * 0.7,
-            minHeight: '2px',
-            background: `linear-gradient(to top, var(--accent-warm-dim), var(--accent-warm))`,
-            boxShadow: !muted && value > 0.3 ? `0 0 ${Math.round(value * 8)}px rgba(200,164,110,0.25)` : 'none',
-          }}
-        />
-      ))}
-    </div>
-  );
 };
 
 interface MicSelectorProps {
@@ -232,13 +144,6 @@ export const MicSelector: React.FC<MicSelectorProps> = ({
           <ChevronDown size={12} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
         </button>
       </div>
-
-      {/* Preview Waveform */}
-      {selectedDevice && (
-        <div className="mt-2 maya-surface border border-[var(--border-subtle)]">
-          <LiveWaveform deviceId={selectedDevice} muted={isMuted} />
-        </div>
-      )}
 
       {/* Dropdown */}
       {isOpen && (
