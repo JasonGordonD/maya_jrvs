@@ -642,50 +642,50 @@ const App: React.FC = () => {
             )}
             <div ref={transcriptBottomRef} />
           </div>
+
+          <div className="maya-input-wrap">
+            <form onSubmit={handleTextSubmit} className="maya-input-bar">
+              <button
+                type="button"
+                className={`maya-voice-button ${isAgentConnected && (agentMode === 'listening' || agentMode === 'speaking') ? 'active' : ''}`}
+                onClick={() => {
+                  if (!isAgentConnected) {
+                    startAgentSession();
+                  } else {
+                    setMicMuted((prev) => !prev);
+                  }
+                }}
+                aria-label={isAgentConnected ? 'Toggle microphone' : 'Connect to agent'}
+              >
+                {isAgentConnected ? <Mic size={14} /> : <Volume2 size={14} />}
+              </button>
+
+              <input
+                type="text"
+                value={textInput}
+                onChange={(event) => {
+                  setTextInput(event.target.value);
+                  if (isAgentConnected) {
+                    conversation.sendUserActivity();
+                  }
+                }}
+                placeholder={isAgentConnected ? 'Send text to Maya (or speak)...' : 'Ask Maya anything...'}
+                disabled={isProcessing}
+                className="maya-input"
+              />
+
+              <button
+                type="submit"
+                disabled={!textInput.trim() || isProcessing}
+                className={`maya-send-button ${textInput.trim() ? 'ready' : ''}`}
+                aria-label="Send message"
+              >
+                <Send size={14} />
+              </button>
+            </form>
+          </div>
         </section>
       </main>
-
-      <div className="maya-input-wrap">
-        <form onSubmit={handleTextSubmit} className="maya-input-bar">
-          <button
-            type="button"
-            className={`maya-voice-button ${isAgentConnected && (agentMode === 'listening' || agentMode === 'speaking') ? 'active' : ''}`}
-            onClick={() => {
-              if (!isAgentConnected) {
-                startAgentSession();
-              } else {
-                setMicMuted((prev) => !prev);
-              }
-            }}
-            aria-label={isAgentConnected ? 'Toggle microphone' : 'Connect to agent'}
-          >
-            {isAgentConnected ? <Mic size={14} /> : <Volume2 size={14} />}
-          </button>
-
-          <input
-            type="text"
-            value={textInput}
-            onChange={(event) => {
-              setTextInput(event.target.value);
-              if (isAgentConnected) {
-                conversation.sendUserActivity();
-              }
-            }}
-            placeholder={isAgentConnected ? 'Send text to Maya (or speak)...' : 'Ask Maya anything...'}
-            disabled={isProcessing}
-            className="maya-input"
-          />
-
-          <button
-            type="submit"
-            disabled={!textInput.trim() || isProcessing}
-            className={`maya-send-button ${textInput.trim() ? 'ready' : ''}`}
-            aria-label="Send message"
-          >
-            <Send size={14} />
-          </button>
-        </form>
-      </div>
 
       <footer className="maya-footer maya-mono">
         PRMPT · MAYA JRVS v3.0
