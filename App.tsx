@@ -35,9 +35,9 @@ type ModelOption = {
 };
 
 const MODEL_OPTIONS: ModelOption[] = [
-  { model: 'gemini-2.0-flash', provider: 'google', latencyMs: 390 },
-  { model: 'gemini-2.5-flash-preview-04-17', provider: 'google', latencyMs: 420 },
-  { model: 'gemini-2.5-pro-preview-03-25', provider: 'google', latencyMs: 760 },
+  { model: 'gemini-3-flash-preview', provider: 'google', latencyMs: 420 },
+  { model: 'gemini-2.5-flash', provider: 'google', latencyMs: 390 },
+  { model: 'gemini-3-pro-preview', provider: 'google', latencyMs: 760 },
   { model: 'claude-opus-4-6', provider: 'anthropic', latencyMs: 880 },
   { model: 'claude-sonnet-4-5-20250929', provider: 'anthropic', latencyMs: 620 },
   { model: 'claude-haiku-4-5-20251001', provider: 'anthropic', latencyMs: 410 },
@@ -76,7 +76,7 @@ const App: React.FC = () => {
   const { url: supabaseUrl, key: supabaseKey } = getBrowserSupabaseConfig();
   const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
   const [textInput, setTextInput] = useState('');
-  const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash-preview-04-17');
+  const [selectedModel, setSelectedModel] = useState('gemini-3-flash-preview');
   const [latencyByModel, setLatencyByModel] = useState<Record<string, number>>({});
 
   const [showContextSidebar, setShowContextSidebar] = useState(true);
