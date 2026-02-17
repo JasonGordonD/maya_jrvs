@@ -620,7 +620,12 @@ const App: React.FC = () => {
           <input
             type="text"
             value={textInput}
-            onChange={(event) => setTextInput(event.target.value)}
+            onChange={(event) => {
+              setTextInput(event.target.value);
+              if (isAgentConnected) {
+                conversation.sendUserActivity();
+              }
+            }}
             placeholder={isAgentConnected ? 'Send text to Maya (or speak)...' : 'Ask Maya anything...'}
             disabled={isProcessing}
             className="maya-input"
