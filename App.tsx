@@ -4,22 +4,22 @@ import {
   BrainCircuit,
   ChevronLeft,
   ChevronRight,
-  Cpu,
   FileWarning,
   Image,
   Loader2,
   Mic,
+  MicOff,
   Paperclip,
+  Radio,
   Send,
   Settings2,
-  Unlink,
+  Unplug,
   Volume2
 } from 'lucide-react';
 
+import { useConversation } from '@elevenlabs/react';
 import { TranscriptItem, ErrorLogEntry } from './types';
 import { Message, MessageContent, ConversationEmptyState } from './Message';
-import { useElevenLabs } from './hooks/useElevenLabs';
-import { useSpeechToText } from './hooks/useSpeechToText';
 import { generateMayaResponse, MayaModelProvider } from './services/gemini';
 import GlassPanel from './GlassPanel';
 import TactileButton from './TactileButton';
@@ -59,6 +59,8 @@ const STOPWORDS = new Set([
   'this', 'what', 'when', 'have', 'please', 'your', 'will', 'been', 'they', 'them', 'here', 'into', 'then'
 ]);
 
+const AGENT_ID = import.meta.env.VITE_ELEVENLABS_AGENT_ID || 'agent_0401khmtcyfef6hbpcvchjv5jj02';
+
 const formatDuration = (ms: number): string => {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
   const minutes = Math.floor(totalSeconds / 60);
@@ -85,20 +87,12 @@ const App: React.FC = () => {
   const [selectedMic, setSelectedMic] = useState('');
   const [micMuted, setMicMuted] = useState(false);
 
-  const [systemOnline, setSystemOnline] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorLog, setErrorLog] = useState<ErrorLogEntry[]>([]);
+  const [agentMode, setAgentMode] = useState<'listening' | 'speaking' | null>(null);
 
   const transcriptBottomRef = useRef<HTMLDivElement>(null);
-
-  const {
-    speak,
-    stop: stopSpeaking,
-    isSpeaking,
-    volume,
-    engine: ttsEngine,
-    setEngine: setTtsEngine
-  } = useElevenLabs();
+  const conversationRef = useRef<ReturnType<typeof useConversation> | null>(null);
 
   const addError = useCallback((code: string, message: string, source: ErrorLogEntry['source'], details?: unknown) => {
     const detailsSuffix = details ? ` | ${JSON.stringify(details).slice(0, 180)}` : '';
@@ -115,7 +109,67 @@ const App: React.FC = () => {
     console.error(`[${source}] ${code}: ${message}`, details);
   }, []);
 
-  const handleUserInput = useCallback(async (text: string, skipTTS = false) => {
+  // ElevenLabs Conversational AI agent hook
+  const conversation = useConversation({
+    onConnect: () => {
+      console.log('[MJRVS] Agent session connected');
+    },
+    onDisconnect: () => {
+      console.log('[MJRVS] Agent session disconnected');
+      setAgentMode(null);
+    },
+    onMessage: (message) => {
+      const item: TranscriptItem = {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        role: message.source === 'user' ? 'user' : 'model',
+        text: message.message,
+        timestamp: new Date(),
+        metadata: message.source === 'ai' ? {
+          model: 'agent',
+          provider: 'anthropic',
+        } : undefined,
+      };
+      setTranscript((prev) => [...prev, item]);
+    },
+    onModeChange: (mode) => {
+      setAgentMode(mode.mode === 'speaking' ? 'speaking' : 'listening');
+    },
+    onError: (message, context) => {
+      addError('AGENT_ERROR', message, 'VOICE_AGENT', context);
+    },
+  });
+
+  conversationRef.current = conversation;
+
+  const isAgentConnected = conversation.status === 'connected';
+  const isAgentConnecting = conversation.status === 'connecting';
+  const isSpeaking = conversation.isSpeaking;
+
+  // Start agent voice session
+  const startAgentSession = useCallback(async () => {
+    try {
+      await conversation.startSession({
+        agentId: AGENT_ID,
+        connectionType: 'webrtc',
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to start agent session';
+      addError('AGENT_CONNECT_FAILURE', message, 'VOICE_AGENT', error);
+    }
+  }, [addError, conversation]);
+
+  // End agent voice session
+  const endAgentSession = useCallback(async () => {
+    try {
+      await conversation.endSession();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to end agent session';
+      addError('AGENT_DISCONNECT_FAILURE', message, 'VOICE_AGENT', error);
+    }
+  }, [addError, conversation]);
+
+  // Text chat via mjrvs_llm (used when agent is disconnected)
+  const handleTextChat = useCallback(async (text: string) => {
     if (!text.trim() || isProcessing) return;
     setIsProcessing(true);
 
@@ -145,10 +199,6 @@ const App: React.FC = () => {
         }
       };
       setTranscript((prev) => [...prev, modelMessage]);
-
-      if (!skipTTS && systemOnline) {
-        await speak(response.content);
-      }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       addError('INTELLIGENCE_FAILURE', message, 'SYSTEM', {
@@ -167,29 +217,23 @@ const App: React.FC = () => {
     } finally {
       setIsProcessing(false);
     }
-  }, [addError, isProcessing, selectedModel, speak, systemOnline, transcript]);
+  }, [addError, isProcessing, selectedModel, transcript]);
 
-  const handleUserSpeech = useCallback((text: string) => {
-    handleUserInput(text, false);
-  }, [handleUserInput]);
-
-  const {
-    isListening,
-    startListening,
-    stopListening,
-    interimTranscript,
-    engine: sttEngine,
-    setEngine: setSttEngine
-  } = useSpeechToText(handleUserSpeech, { selectedDeviceId: selectedMic });
-
+  // Unified text submit: routes to agent or text chat based on connection state
   const handleTextSubmit = useCallback((event?: React.FormEvent) => {
     event?.preventDefault();
     const value = textInput.trim();
     if (!value) return;
-    handleUserInput(value, true);
-    setTextInput('');
-  }, [handleUserInput, textInput]);
 
+    if (isAgentConnected) {
+      conversation.sendUserMessage(value);
+    } else {
+      handleTextChat(value);
+    }
+    setTextInput('');
+  }, [conversation, handleTextChat, isAgentConnected, textInput]);
+
+  // Image upload via mjrvs_vision edge function
   const handleImageUpload = useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) {
       addError('VISION_ERROR', 'File must be an image.', 'SYSTEM');
@@ -223,7 +267,7 @@ const App: React.FC = () => {
           base64_data: base64Data,
           mime_type: file.type,
           media_type: 'image',
-          user_id: 'rami', // TODO: Replace with auth-derived user ID when auth is implemented
+          user_id: 'rami',
         }),
       });
 
@@ -241,6 +285,8 @@ const App: React.FC = () => {
 
       const result = await response.json() as { analysis_text?: string };
       const analysis = result.analysis_text || 'No analysis text returned.';
+
+      // Add upload indicator to transcript
       setTranscript((prev) => [
         ...prev,
         {
@@ -250,35 +296,51 @@ const App: React.FC = () => {
           timestamp: new Date()
         },
       ]);
-      await handleUserInput(`Vision analysis: ${analysis}`, false);
+
+      // Inject analysis into agent session or text chat
+      if (isAgentConnected) {
+        conversation.sendContextualUpdate(`Vision analysis of uploaded image "${file.name}": ${analysis}`);
+        setTranscript((prev) => [
+          ...prev,
+          {
+            id: `${Date.now() + 1}`,
+            role: 'model',
+            text: `[Vision analysis injected into agent context]\n\n${analysis}`,
+            timestamp: new Date(),
+            metadata: { model: 'mjrvs_vision', provider: 'xai' }
+          },
+        ]);
+      } else {
+        await handleTextChat(`Vision analysis: ${analysis}`);
+      }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Unknown vision failure';
       addError('VISION_FAILURE', message, 'SYSTEM', { fileName: file.name });
     } finally {
       setIsProcessing(false);
     }
-  }, [addError, handleUserInput, supabaseKey, supabaseUrl]);
+  }, [addError, conversation, handleTextChat, isAgentConnected, supabaseKey, supabaseUrl]);
 
-  useEffect(() => {
-    if (!systemOnline || micMuted) {
-      if (isListening) stopListening();
-      return;
+  // Handle mic device change — wire to SDK
+  const handleMicChange = useCallback((deviceId: string) => {
+    setSelectedMic(deviceId);
+    if (isAgentConnected && deviceId) {
+      conversation.changeInputDevice({
+        format: 'pcm',
+        sampleRate: 16000,
+        inputDeviceId: deviceId,
+      }).catch((err) => {
+        console.error('[MJRVS] Failed to change input device:', err);
+      });
     }
+  }, [conversation, isAgentConnected]);
 
-    if (isSpeaking || isProcessing) {
-      if (isListening) stopListening();
-      return;
-    }
-
-    if (!isListening) {
-      startListening();
-    }
-  }, [isListening, isProcessing, isSpeaking, micMuted, startListening, stopListening, systemOnline]);
-
+  // Auto-scroll transcript
   useEffect(() => {
     transcriptBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [transcript, interimTranscript, isProcessing]);
+  }, [transcript, isProcessing]);
 
+  // Global error handler
   useEffect(() => {
     const handleGlobalError = (event: ErrorEvent) => {
       addError('UNCAUGHT_EXCEPTION', event.message || 'Unknown script error', 'SYSTEM');
@@ -315,9 +377,34 @@ const App: React.FC = () => {
   const telemetry = {
     memory: transcript.length > 0,
     vision: transcript.some((item) => item.text.toLowerCase().includes('vision')),
-    voice: systemOnline && (isListening || isSpeaking),
-    state: systemOnline,
+    voice: isAgentConnected,
+    state: isAgentConnected || transcript.length > 0,
   };
+
+  // Waveform data from agent input audio
+  const [waveformData, setWaveformData] = useState<number[]>(new Array(40).fill(0));
+  useEffect(() => {
+    if (!isAgentConnected) {
+      setWaveformData(new Array(40).fill(0));
+      return;
+    }
+    let frameId: number;
+    const update = () => {
+      const data = conversation.getInputByteFrequencyData();
+      if (data && data.length > 0) {
+        const bars = 40;
+        const step = Math.max(1, Math.floor(data.length / bars));
+        const normalized = Array.from({ length: bars }, (_, i) => {
+          const value = (data[i * step] ?? 0) / 255;
+          return Math.max(0.05, value * 1.5);
+        });
+        setWaveformData(normalized);
+      }
+      frameId = requestAnimationFrame(update);
+    };
+    frameId = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(frameId);
+  }, [conversation, isAgentConnected]);
 
   return (
     <div className="maya-shell">
@@ -336,44 +423,51 @@ const App: React.FC = () => {
         </div>
 
         <div className="maya-header-center">
-          <label className="maya-mono uppercase text-[10px] tracking-[0.14em]">Model</label>
-          <div className="maya-model-select-wrap">
-            <span className={`provider-dot ${PROVIDER_DOT_CLASS[selectedModelConfig.provider]}`} />
-            <select
-              className="maya-model-select"
-              value={selectedModel}
-              onChange={(event) => setSelectedModel(event.target.value)}
-            >
-              {MODEL_OPTIONS.map((option) => (
-                <option key={option.model} value={option.model}>
-                  {option.model}
-                </option>
-              ))}
-            </select>
-            <span className="maya-model-latency">{displayLatency}ms</span>
-          </div>
+          {!isAgentConnected ? (
+            <>
+              <label className="maya-mono uppercase text-[10px] tracking-[0.14em]">Model</label>
+              <div className="maya-model-select-wrap">
+                <span className={`provider-dot ${PROVIDER_DOT_CLASS[selectedModelConfig.provider]}`} />
+                <select
+                  className="maya-model-select"
+                  value={selectedModel}
+                  onChange={(event) => setSelectedModel(event.target.value)}
+                >
+                  {MODEL_OPTIONS.map((option) => (
+                    <option key={option.model} value={option.model}>
+                      {option.model}
+                    </option>
+                  ))}
+                </select>
+                <span className="maya-model-latency">{displayLatency}ms</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <label className="maya-mono uppercase text-[10px] tracking-[0.14em]">Agent</label>
+              <div className="maya-model-select-wrap">
+                <span className="provider-dot provider-dot-anthropic" />
+                <span className="maya-model-select" style={{ cursor: 'default' }}>
+                  JRVS · {agentMode === 'speaking' ? 'SPEAKING' : agentMode === 'listening' ? 'LISTENING' : 'CONNECTED'}
+                </span>
+                <span className="maya-model-latency">live</span>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="maya-header-right">
-          <TactileButton
-            state={ttsEngine === 'ELEVEN_LABS' ? 'online' : 'default'}
-            icon={<Cpu size={14} />}
-            onClick={() => setTtsEngine((prev) => (prev === 'ELEVEN_LABS' ? 'WEB_NATIVE' : 'ELEVEN_LABS'))}
-            aria-label="Toggle voice output engine"
-            title="Toggle voice output engine"
-          >
-            {ttsEngine === 'ELEVEN_LABS' ? 'Voice: ElevenLabs' : 'Voice: Native'}
-          </TactileButton>
-          <TactileButton
-            state={sttEngine === 'ELEVEN_LABS_REALTIME' ? 'online' : 'default'}
-            icon={<Mic size={14} />}
-            onClick={() => {
-              stopListening();
-              setSttEngine((prev) => (prev === 'ELEVEN_LABS_REALTIME' ? 'WEB_SPEECH' : 'ELEVEN_LABS_REALTIME'));
-            }}
-          >
-            {sttEngine === 'ELEVEN_LABS_REALTIME' ? 'Proxy STT' : 'Web STT'}
-          </TactileButton>
+          {isAgentConnected && (
+            <TactileButton
+              state={micMuted ? 'offline' : 'online'}
+              icon={micMuted ? <MicOff size={14} /> : <Mic size={14} />}
+              onClick={() => setMicMuted((prev) => !prev)}
+              aria-label="Toggle microphone mute"
+              title="Toggle microphone mute"
+            >
+              {micMuted ? 'Muted' : 'Mic On'}
+            </TactileButton>
+          )}
           <TactileButton
             state={showMicSelector ? 'online' : 'default'}
             icon={<Settings2 size={14} />}
@@ -388,24 +482,23 @@ const App: React.FC = () => {
           >
             Files
           </TactileButton>
-          <TactileButton
-            state={systemOnline ? 'online' : 'offline'}
-            icon={systemOnline ? <Unlink size={14} /> : <Activity size={14} />}
-            onClick={() => {
-              if (systemOnline) {
-                stopListening();
-                stopSpeaking();
-                setMicMuted(true);
-                setShowMicSelector(false);
-                setSystemOnline(false);
-                return;
-              }
-              setMicMuted(false);
-              setSystemOnline(true);
-            }}
-          >
-            {systemOnline ? 'Online' : 'Offline'}
-          </TactileButton>
+          {isAgentConnected || isAgentConnecting ? (
+            <TactileButton
+              state="online"
+              icon={<Unplug size={14} />}
+              onClick={endAgentSession}
+            >
+              {isAgentConnecting ? 'Connecting...' : 'Online'}
+            </TactileButton>
+          ) : (
+            <TactileButton
+              state="offline"
+              icon={<Radio size={14} />}
+              onClick={startAgentSession}
+            >
+              Connect
+            </TactileButton>
+          )}
         </div>
       </header>
 
@@ -429,8 +522,8 @@ const App: React.FC = () => {
                 <ul>
                   <li><span>Turns</span><strong>{transcript.length}</strong></li>
                   <li><span>Duration</span><strong>{formatDuration(sessionDurationMs)}</strong></li>
-                  <li><span>Voice engine</span><strong>{ttsEngine === 'ELEVEN_LABS' ? 'ElevenLabs' : 'Native'}</strong></li>
-                  <li><span>STT</span><strong>{sttEngine === 'ELEVEN_LABS_REALTIME' ? 'Proxy RT' : 'Web Speech'}</strong></li>
+                  <li><span>Mode</span><strong>{isAgentConnected ? 'Voice Agent' : 'Text Chat'}</strong></li>
+                  <li><span>Agent</span><strong>{isAgentConnected ? 'Connected' : 'Disconnected'}</strong></li>
                 </ul>
               </section>
 
@@ -478,10 +571,21 @@ const App: React.FC = () => {
               ))
             )}
 
-            {interimTranscript && systemOnline && (
-              <div className="maya-interim-line">
-                <Mic size={12} />
-                <span>{interimTranscript}</span>
+            {/* Agent waveform visualization when connected and not muted */}
+            {isAgentConnected && !micMuted && (
+              <div className="flex items-center justify-center gap-0.5 h-10 mx-4 mt-2 maya-surface border border-[var(--border-subtle)] p-2">
+                {waveformData.map((value, i) => (
+                  <div
+                    key={i}
+                    className="flex-1 transition-all duration-75"
+                    style={{
+                      height: `${value * 100}%`,
+                      opacity: 0.4 + value * 0.6,
+                      background: 'linear-gradient(to top, var(--accent-warm-dim), var(--accent-warm))',
+                      boxShadow: value > 0.3 ? `0 0 ${Math.round(value * 8)}px rgba(200,164,110,0.25)` : 'none',
+                    }}
+                  />
+                ))}
               </div>
             )}
 
@@ -500,18 +604,24 @@ const App: React.FC = () => {
         <form onSubmit={handleTextSubmit} className="maya-input-bar">
           <button
             type="button"
-            className={`maya-voice-button ${systemOnline && (isListening || isSpeaking) ? 'active' : ''}`}
-            onClick={() => setMicMuted((prev) => !prev)}
-            aria-label="Toggle microphone"
+            className={`maya-voice-button ${isAgentConnected && (agentMode === 'listening' || agentMode === 'speaking') ? 'active' : ''}`}
+            onClick={() => {
+              if (!isAgentConnected) {
+                startAgentSession();
+              } else {
+                setMicMuted((prev) => !prev);
+              }
+            }}
+            aria-label={isAgentConnected ? 'Toggle microphone' : 'Connect to agent'}
           >
-            <Volume2 size={14} />
+            {isAgentConnected ? <Mic size={14} /> : <Volume2 size={14} />}
           </button>
 
           <input
             type="text"
             value={textInput}
             onChange={(event) => setTextInput(event.target.value)}
-            placeholder={systemOnline ? 'Ask Maya anything...' : 'Set system online to begin...'}
+            placeholder={isAgentConnected ? 'Send text to Maya (or speak)...' : 'Ask Maya anything...'}
             disabled={isProcessing}
             className="maya-input"
           />
@@ -539,7 +649,7 @@ const App: React.FC = () => {
           </div>
           <MicSelector
             value={selectedMic}
-            onValueChange={setSelectedMic}
+            onValueChange={handleMicChange}
             muted={micMuted}
             onMutedChange={setMicMuted}
           />
