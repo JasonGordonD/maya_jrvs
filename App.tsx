@@ -27,6 +27,7 @@ import { Response } from './Response';
 import { MicSelector } from './MicSelector';
 import { FileUpload } from './FileUpload';
 import { buildSupabaseAuthHeaders, getBrowserSupabaseConfig } from './services/supabaseConfig';
+import { Orb } from './components/ui/orb';
 
 type ModelOption = {
   model: string;
@@ -381,30 +382,34 @@ const App: React.FC = () => {
     state: isAgentConnected || transcript.length > 0,
   };
 
-  // Waveform data from agent input audio
-  const [waveformData, setWaveformData] = useState<number[]>(new Array(40).fill(0));
+  // Audio volume levels for 3D Orb reactivity
+  const [inputVolume, setInputVolume] = useState(0);
+  const [outputVolume, setOutputVolume] = useState(0);
   useEffect(() => {
     if (!isAgentConnected) {
-      setWaveformData(new Array(40).fill(0));
+      setInputVolume(0);
+      setOutputVolume(0);
       return;
     }
     let frameId: number;
     const update = () => {
-      const data = conversation.getInputByteFrequencyData();
-      if (data && data.length > 0) {
-        const bars = 40;
-        const step = Math.max(1, Math.floor(data.length / bars));
-        const normalized = Array.from({ length: bars }, (_, i) => {
-          const value = (data[i * step] ?? 0) / 255;
-          return Math.max(0.05, value * 1.5);
-        });
-        setWaveformData(normalized);
-      }
+      const inVol = conversation.getInputVolume();
+      const outVol = conversation.getOutputVolume();
+      setInputVolume(typeof inVol === 'number' ? Math.min(1, inVol) : 0);
+      setOutputVolume(typeof outVol === 'number' ? Math.min(1, outVol) : 0);
       frameId = requestAnimationFrame(update);
     };
     frameId = requestAnimationFrame(update);
     return () => cancelAnimationFrame(frameId);
   }, [conversation, isAgentConnected]);
+
+  // Map conversation state to orb agent state
+  const getAgentState = useCallback(() => {
+    if (conversation.status === 'connecting') return 'thinking' as const;
+    if (isSpeaking) return 'talking' as const;
+    if (isAgentConnected) return 'listening' as const;
+    return null;
+  }, [conversation.status, isSpeaking, isAgentConnected]);
 
   return (
     <div className="maya-shell">
@@ -571,21 +576,16 @@ const App: React.FC = () => {
               ))
             )}
 
-            {/* Agent waveform visualization when connected and not muted */}
-            {isAgentConnected && !micMuted && (
-              <div className="flex items-center justify-center gap-0.5 h-10 mx-4 mt-2 maya-surface border border-[var(--border-subtle)] p-2">
-                {waveformData.map((value, i) => (
-                  <div
-                    key={i}
-                    className="flex-1 transition-all duration-75"
-                    style={{
-                      height: `${value * 100}%`,
-                      opacity: 0.4 + value * 0.6,
-                      background: 'linear-gradient(to top, var(--accent-warm-dim), var(--accent-warm))',
-                      boxShadow: value > 0.3 ? `0 0 ${Math.round(value * 8)}px rgba(255,45,120,0.25)` : 'none',
-                    }}
-                  />
-                ))}
+            {/* 3D Orb — reacts to both input and output audio */}
+            {(isAgentConnected || isAgentConnecting) && (
+              <div className="maya-orb-container">
+                <Orb
+                  agentState={getAgentState()}
+                  colors={['#ff2d78', '#c2185b']}
+                  volumeMode="manual"
+                  manualInput={inputVolume}
+                  manualOutput={outputVolume}
+                />
               </div>
             )}
 
