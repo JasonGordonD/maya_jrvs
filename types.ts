@@ -4,6 +4,7 @@ export interface TranscriptItem {
   role: 'user' | 'model';
   text: string;
   timestamp: Date;
+  feedbackSent?: boolean;
   metadata?: {
     memory_hit?: boolean;
     tool_call?: string;

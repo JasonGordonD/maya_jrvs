@@ -13,6 +13,8 @@ import {
   Radio,
   Send,
   Settings2,
+  ThumbsDown,
+  ThumbsUp,
   Unplug,
   Volume2
 } from 'lucide-react';
@@ -422,6 +424,14 @@ const App: React.FC = () => {
     return null;
   }, [conversation.status, isSpeaking, isAgentConnected]);
 
+  // Feedback handler for agent messages
+  const handleFeedback = useCallback((messageId: string, positive: boolean) => {
+    conversation.sendFeedback(positive);
+    setTranscript((prev) =>
+      prev.map((item) => item.id === messageId ? { ...item, feedbackSent: true } : item)
+    );
+  }, [conversation]);
+
   return (
     <div className="maya-shell">
       <div className="ambient-glow" />
@@ -584,6 +594,21 @@ const App: React.FC = () => {
                   <MessageContent from={item.role === 'user' ? 'user' : 'assistant'}>
                     {item.role === 'model' ? <Response>{item.text}</Response> : <span>{item.text}</span>}
                   </MessageContent>
+                  {item.role === 'model' && conversation.canSendFeedback && !item.feedbackSent && (
+                    <div className="maya-feedback-buttons">
+                      <button onClick={() => handleFeedback(item.id, true)} title="Good response">
+                        <ThumbsUp size={12} /> Good
+                      </button>
+                      <button onClick={() => handleFeedback(item.id, false)} title="Bad response">
+                        <ThumbsDown size={12} /> Bad
+                      </button>
+                    </div>
+                  )}
+                  {item.role === 'model' && item.feedbackSent && (
+                    <div className="maya-feedback-sent">
+                      Feedback sent
+                    </div>
+                  )}
                 </Message>
               ))
             )}
