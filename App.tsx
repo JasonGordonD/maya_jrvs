@@ -4,6 +4,7 @@ import {
   BrainCircuit,
   ChevronLeft,
   ChevronRight,
+  ClipboardCopy,
   FileWarning,
   Image,
   Loader2,
@@ -441,6 +442,24 @@ const App: React.FC = () => {
     return null;
   }, [conversation.status, isSpeaking, isAgentConnected]);
 
+  const [transcriptCopied, setTranscriptCopied] = useState(false);
+
+  // Export transcript as formatted markdown
+  const exportTranscript = useCallback(() => {
+    if (transcript.length === 0) return;
+    const markdown = transcript
+      .map((msg) => {
+        const speaker = msg.role === 'user' ? '**You:**' : '**Maya:**';
+        const time = msg.timestamp.toLocaleTimeString();
+        return `${speaker} (${time})\n${msg.text}\n`;
+      })
+      .join('\n---\n\n');
+    navigator.clipboard.writeText(markdown).then(() => {
+      setTranscriptCopied(true);
+      setTimeout(() => setTranscriptCopied(false), 2000);
+    });
+  }, [transcript]);
+
   // Feedback handler for agent messages
   const handleFeedback = useCallback((messageId: string, positive: boolean) => {
     conversation.sendFeedback(positive);
@@ -600,6 +619,18 @@ const App: React.FC = () => {
         </aside>
 
         <section className="maya-conversation-panel">
+          {transcript.length > 0 && (
+            <div className="maya-transcript-toolbar">
+              <button
+                className="maya-export-button"
+                onClick={exportTranscript}
+                title="Copy transcript to clipboard"
+              >
+                <ClipboardCopy size={12} />
+                {transcriptCopied ? 'Copied' : 'Export'}
+              </button>
+            </div>
+          )}
           <div className="maya-conversation-scroll maya-scrollbar">
             {transcript.length === 0 ? (
               <ConversationEmptyState />
