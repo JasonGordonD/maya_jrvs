@@ -116,7 +116,7 @@ type LlmResponsePayload = {
 export const generateMayaResponse = async (
   history: ChatTurn[],
   newMessage: string,
-  model: string = 'gemini-2.0-flash'
+  model: string = 'gemini-2.5-flash-preview-04-17'
 ): Promise<MayaResponsePayload> => {
   const { url: supabaseUrl, key: supabaseKey } = getBrowserSupabaseConfig();
   if (!supabaseUrl) {

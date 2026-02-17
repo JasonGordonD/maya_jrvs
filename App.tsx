@@ -76,7 +76,7 @@ const App: React.FC = () => {
   const { url: supabaseUrl, key: supabaseKey } = getBrowserSupabaseConfig();
   const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
   const [textInput, setTextInput] = useState('');
-  const [selectedModel, setSelectedModel] = useState('gemini-2.0-flash');
+  const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash-preview-04-17');
   const [latencyByModel, setLatencyByModel] = useState<Record<string, number>>({});
 
   const [showContextSidebar, setShowContextSidebar] = useState(true);
