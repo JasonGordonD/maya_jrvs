@@ -94,6 +94,8 @@ const App: React.FC = () => {
   const [errorLog, setErrorLog] = useState<ErrorLogEntry[]>([]);
   const [agentMode, setAgentMode] = useState<'listening' | 'speaking' | null>(null);
   const [currentNode, setCurrentNode] = useState<string | null>(null);
+  const [sessionStart, setSessionStart] = useState<Date | null>(null);
+  const [sessionElapsed, setSessionElapsed] = useState('00:00');
 
   const transcriptBottomRef = useRef<HTMLDivElement>(null);
   const conversationRef = useRef<ReturnType<typeof useConversation> | null>(null);
@@ -118,11 +120,14 @@ const App: React.FC = () => {
     onConnect: () => {
       console.log('[MJRVS] Agent session connected');
       setCurrentNode(null);
+      setSessionStart(new Date());
     },
     onDisconnect: () => {
       console.log('[MJRVS] Agent session disconnected');
       setAgentMode(null);
       setCurrentNode(null);
+      setSessionStart(null);
+      setSessionElapsed('00:00');
     },
     onMessage: (message) => {
       const item: TranscriptItem = {
@@ -349,6 +354,18 @@ const App: React.FC = () => {
     }
   }, [conversation, isAgentConnected]);
 
+  // Session timer
+  useEffect(() => {
+    if (!sessionStart) return;
+    const interval = setInterval(() => {
+      const diff = Math.floor((Date.now() - sessionStart.getTime()) / 1000);
+      const mins = Math.floor(diff / 60).toString().padStart(2, '0');
+      const secs = (diff % 60).toString().padStart(2, '0');
+      setSessionElapsed(`${mins}:${secs}`);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [sessionStart]);
+
   // Auto-scroll transcript
   useEffect(() => {
     transcriptBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -530,10 +547,13 @@ const App: React.FC = () => {
       </header>
 
       <div className="maya-telemetry-bar">
+        <div className="maya-telemetry-item"><StatusDot active={telemetry.voice} />VOICE</div>
         <div className="maya-telemetry-item"><StatusDot active={telemetry.memory} />MEMORY</div>
         <div className="maya-telemetry-item"><StatusDot active={telemetry.vision} />VISION</div>
-        <div className="maya-telemetry-item"><StatusDot active={telemetry.voice} />VOICE</div>
         <div className="maya-telemetry-item"><StatusDot active={telemetry.state} />STATE</div>
+        {sessionStart && (
+          <div className="maya-telemetry-item maya-session-timer">{sessionElapsed}</div>
+        )}
       </div>
 
       <main className="maya-main">

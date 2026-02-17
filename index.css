@@ -186,8 +186,13 @@ body {
   margin: 0 20px 10px;
   border: 1px solid var(--border-subtle);
   background: var(--bg-surface);
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: flex;
+}
+
+.maya-session-timer {
+  margin-left: auto;
+  color: var(--accent-warm);
+  font-variant-numeric: tabular-nums;
 }
 
 .maya-telemetry-item {
