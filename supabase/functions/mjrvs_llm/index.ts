@@ -55,7 +55,7 @@ const SUPPORTED_MODELS = new Set<string>([
   "magistral-medium-2509",
 ]);
 
-const DEFAULT_FALLBACK_MODEL = "gemini-3-flash-preview";
+const DEFAULT_FALLBACK_MODEL = "gemini-2.5-flash";
 
 const jsonResponse = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {
