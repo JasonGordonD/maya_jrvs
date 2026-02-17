@@ -199,63 +199,38 @@ When a conversation cascades from `custom-llm` to `gemini-3-flash-preview` (as t
 
 ## Recommended Fixes
 
-### Option A: Use native models everywhere (Recommended — maximum flexibility)
+Claude Opus 4.6 on the Qualification node is foundational — it was deliberately configured via `custom-llm` because Opus is not available as a native ElevenLabs model. All recommendations below preserve Opus on Qualification.
 
-Switch all nodes — including Qualification — to native ElevenLabs models. This gives you:
-- **Full access to 73 native models across all providers** — use GPT-5 on one node, Gemini 3 Flash on another, Claude Sonnet 4 on a third
-- **Zero backend mismatch risk** — all nodes use native integration, all transfers are safe
-- **Per-node model flexibility** — each sub-agent can use whichever native model best suits its role
-- **ElevenLabs-managed routing** — platform handles auth, optimization, and failover internally
+### Finding 9: All major providers expose Chat Completions compatible endpoints
 
-Example configuration:
+Confirmed live via HTTP probe:
 
-| Node | Model | Rationale |
-|------|-------|-----------|
-| Qualification | `claude-sonnet-4` | General conversation routing, strong at classification |
-| Thought Partner | `claude-sonnet-4-5` | Deep reasoning, extended thinking |
-| Coding | `gpt-5` or `claude-sonnet-4-5` | Strong code generation |
-| Heavy Duty | `gemini-3-flash-preview` or `gpt-5` | Fast multi-tool execution |
-| Dr. Tijoux | `claude-sonnet-4-5` | Clinical depth, nuanced language |
+| Provider | Chat Completions Endpoint | Probe Result |
+|----------|--------------------------|--------------|
+| Anthropic | `https://api.anthropic.com/v1` | Auth error (endpoint exists) |
+| OpenAI | `https://api.openai.com/v1` | `invalid_request_error` (endpoint exists) |
+| Google | `https://generativelanguage.googleapis.com/v1beta/openai` | `Missing Authorization header` (endpoint exists) |
+| xAI | `https://api.x.ai/v1` | `Messages cannot be empty` (endpoint exists and parses request) |
 
-In each node's `conversation_config.agent.prompt`:
-```json
-{
-    "llm": "claude-sonnet-4",
-    "custom_llm": null
-}
-```
+This means **per-node `custom-llm` blocks can point to different providers**, not just Anthropic. Each sub-agent node can target a different provider's Chat Completions endpoint while all staying on the `custom-llm` backend type — avoiding the workflow transfer bug entirely.
 
-Or for a different provider:
-```json
-{
-    "llm": "gpt-5",
-    "custom_llm": null
-}
-```
+---
 
-The Qualification node also changes from `custom-llm` to a native model (e.g., `claude-sonnet-4`).
+### Option A: Per-node custom-llm with multi-provider endpoints (Recommended)
 
-**What you lose:** Claude Opus 4.6 (not available natively), custom Anthropic beta headers (`fast-mode`, `prompt-caching` — though these weren't working anyway per Finding 2), and direct API key control.
+All nodes use `llm: "custom-llm"`. Opus stays on Qualification. Each sub-agent node gets its own `custom_llm` block pointing to whichever provider's model best fits its role. Since all nodes share the same backend type (`custom-llm`), there is no backend switch on workflow transfers.
 
-**What you gain:** Maximum model diversity, zero crash risk on transfers, simpler configuration, and the freedom to use GPT, Gemini, Claude, Grok, or Qwen on any node.
-
-### Option B: Per-node custom LLM endpoints (if Opus is required, Anthropic-only)
-
-If Claude Opus 4.6 is specifically needed on the Qualification node, all nodes must use `llm: "custom-llm"` to avoid the backend switch bug. Each node gets its own `custom_llm` block with a different `model_id`.
-
-**Limitation:** This locks all nodes to Anthropic models (or whichever single provider the `custom_llm.url` points to). You cannot use native GPT-5, Gemini, Grok, etc. on sub-agent nodes. You could theoretically point different nodes to different providers' Chat Completions endpoints (OpenAI, Google, etc.), but this requires managing separate API keys per provider and loses ElevenLabs' native integration benefits.
-
-In each sub-agent node:
+**Qualification node** (unchanged):
 ```json
 {
     "llm": "custom-llm",
     "custom_llm": {
         "url": "https://api.anthropic.com/v1",
-        "model_id": "claude-sonnet-4-5",
+        "model_id": "claude-opus-4-6",
         "api_key": { "secret_id": "yrYwgLxgCS8SjHIdZF3b" },
         "request_headers": {
             "content-type": "application/json",
-            "anthropic-beta": "prompt-caching-2024-07-31"
+            "anthropic-beta": "fast-mode-2026-02-01,prompt-caching-2024-07-31"
         },
         "api_version": "2023-06-01",
         "api_type": "chat_completions"
@@ -263,61 +238,150 @@ In each sub-agent node:
 }
 ```
 
-**Only choose this if Claude Opus 4.6 is a hard requirement.** Otherwise, Option A gives far more flexibility.
-
-### Option C: Inherit parent's custom-llm on all nodes (if same model is acceptable)
-
-Remove the `llm` and `custom_llm` overrides from sub-agent nodes entirely. They inherit the parent's `custom-llm` with Opus 4.6.
-
+**Sub-agent node using Anthropic Claude Sonnet 4.5** (same API key):
 ```json
-{}
+{
+    "llm": "custom-llm",
+    "custom_llm": {
+        "url": "https://api.anthropic.com/v1",
+        "model_id": "claude-sonnet-4-5",
+        "api_key": { "secret_id": "yrYwgLxgCS8SjHIdZF3b" },
+        "request_headers": { "content-type": "application/json" },
+        "api_version": "2023-06-01",
+        "api_type": "chat_completions"
+    }
+}
 ```
 
-Simplest fix, but all nodes run the same model (Opus 4.6) and you can't use any native models.
+**Sub-agent node using OpenAI GPT-5** (separate API key stored as ElevenLabs secret):
+```json
+{
+    "llm": "custom-llm",
+    "custom_llm": {
+        "url": "https://api.openai.com/v1",
+        "model_id": "gpt-5",
+        "api_key": { "secret_id": "<openai_secret_id>" },
+        "api_type": "chat_completions"
+    }
+}
+```
 
-### Option D: Use native models now, file the bug, add Opus back later
+**Sub-agent node using Google Gemini 3 Flash** (separate API key):
+```json
+{
+    "llm": "custom-llm",
+    "custom_llm": {
+        "url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "model_id": "gemini-3-flash-preview",
+        "api_key": { "secret_id": "<google_secret_id>" },
+        "api_type": "chat_completions"
+    }
+}
+```
 
-This is the pragmatic path:
+**Sub-agent node using xAI Grok** (separate API key):
+```json
+{
+    "llm": "custom-llm",
+    "custom_llm": {
+        "url": "https://api.x.ai/v1",
+        "model_id": "grok-beta",
+        "api_key": { "secret_id": "<xai_secret_id>" },
+        "api_type": "chat_completions"
+    }
+}
+```
 
-1. **Immediately:** Switch to Option A (all native). This fixes the crash and gives you multi-provider model flexibility.
-2. **Simultaneously:** File the workflow transfer bug with ElevenLabs (see Diagnosis section above). The backup_llm_config proves the platform supports mixed backends — the workflow code path just doesn't handle it correctly.
-3. **After fix:** Once ElevenLabs patches the workflow transfer to handle `custom-llm` → native transitions (like the cascade already does), add `custom-llm` with Opus 4.6 back on the Qualification node while keeping native models on sub-agents.
+Example multi-provider layout:
 
-### Why the previous Option A (per-node custom-llm pointing to Anthropic) is NOT recommended
+| Node | Provider | Model | Rationale |
+|------|----------|-------|-----------|
+| Qualification | Anthropic | `claude-opus-4-6` | Foundational — deep reasoning, classification, routing |
+| Thought Partner | Anthropic | `claude-sonnet-4-5` | Same provider, same API key, strong reasoning |
+| Coding | OpenAI | `gpt-5` | Strong code generation, tool use |
+| Heavy Duty | Google | `gemini-3-flash-preview` | Fast, high-throughput multi-tool execution |
+| Dr. Tijoux | Anthropic | `claude-sonnet-4-5` | Clinical depth, nuanced language |
 
-The original recommendation to use `custom-llm` on all nodes with per-node `custom_llm` blocks pointed at Anthropic would work to avoid the crash, but it:
-- **Locks you into a single provider** (Anthropic) across all nodes
-- **Prevents using native ElevenLabs models** from other providers (GPT-5, Gemini, Grok, etc.)
-- **Bypasses ElevenLabs' native model management** (routing, optimization, billing tracking)
-- **Doesn't solve the underlying bug** — the platform should handle mixed backends on workflow transfers
+**What this gives you:**
+- Opus stays foundational on Qualification
+- Multi-provider model selection per node (Anthropic, OpenAI, Google, xAI)
+- Zero workflow transfer crash risk — all nodes are `custom-llm`, no backend switch
+- Direct API key control per provider
+- Full flexibility to swap models/providers per node without touching other nodes
+
+**What it requires:**
+- Store additional API keys as ElevenLabs secrets (one per provider you use)
+- Each provider's Chat Completions compatibility varies slightly — test each model
+
+### Option B: Per-node custom-llm, Anthropic-only (simplest Opus-preserving fix)
+
+If you only need Anthropic models and don't need multi-provider flexibility right now, all nodes use `custom-llm` pointing to the same Anthropic endpoint with different `model_id` values. Same API key across all nodes.
+
+| Node | Model |
+|------|-------|
+| Qualification | `claude-opus-4-6` |
+| Thought Partner | `claude-sonnet-4-5` |
+| Coding | `claude-sonnet-4-5` |
+| Heavy Duty | `claude-sonnet-4-5` |
+| Dr. Tijoux | `claude-sonnet-4-5` |
+
+This is the fastest fix — just change each sub-agent node's `custom_llm.model_id` to `claude-sonnet-4-5` and set `llm: "custom-llm"`. No new API keys needed.
+
+### Option C: LLM proxy for centralized multi-provider routing (advanced)
+
+For maximum control, deploy a lightweight proxy on existing infrastructure (e.g., Render) that exposes a single Chat Completions endpoint. All nodes use `custom-llm` pointing to the proxy with a single API key. The proxy reads the `model_id` from each request and routes to the appropriate provider internally.
+
+**Advantages:**
+- Single `custom_llm.url` and `api_key` across all nodes
+- Proxy handles multi-provider auth, retry logic, and model routing
+- Can add features ElevenLabs doesn't support natively (prompt caching translation, request logging, cost tracking)
+- Can swap providers without touching the ElevenLabs config
+
+**Disadvantages:**
+- Additional infrastructure to maintain
+- Adds latency (extra network hop)
+- Single point of failure unless proxy is HA
+
+This is the right path if you plan to scale to many agents/nodes or need features like prompt caching translation to native Anthropic Messages API.
+
+### Parallel action: File the workflow transfer bug with ElevenLabs
+
+Regardless of which option is chosen, file the `custom-llm` → native backend switch crash as a platform bug:
+
+- **Conversation ID:** `conv_2801khnhjqynetqrp7f2xzg67jp8`
+- **Evidence:** The agent's own `backup_llm_config` mixes `custom-llm` with native models (`gemini-3-flash-preview`, `gemini-2.5-flash`, `claude-sonnet-4-5`) in the same cascade order, proving the platform is designed to handle mid-conversation backend switching
+- **Bug:** The cascade code path handles this transition correctly; the workflow transfer code path does not (crashes with 1011)
+- **Impact:** Any workflow with `custom-llm` on one node and native models on another will crash on transfer
+
+Once patched, this opens up the option of using `custom-llm` (Opus) on Qualification while using ElevenLabs native models on sub-agents without the per-node `custom_llm` workaround.
 
 ### Additional Fix: Tighten the Qualification node routing conditions
 
-Regardless of which LLM fix is chosen, the Qualification node's `additional_prompt` is too permissive about transferring. A self-assessment question ("what is missing from you?") should not trigger a Thought Partner transfer. Add explicit negative conditions:
+The Qualification node's `additional_prompt` is too permissive about transferring. A self-assessment question ("what is missing from you?") should not trigger a Thought Partner transfer. Add explicit negative conditions:
 
 > "Self-reflection questions about your own capabilities, knowledge base, or configuration should be handled in this node — do NOT transfer for these."
 
 ### Additional Fix: Prompt caching is non-functional through Chat Completions compatibility
 
-Per Finding 2, the Anthropic Chat Completions compatibility endpoint does not support prompt caching. The `anthropic-beta: prompt-caching-2024-07-31` header has no effect. All turns show 0 cache read/write tokens. The `fast-mode-2026-02-01` beta likely also doesn't function through this path.
+The Anthropic Chat Completions compatibility endpoint (`/v1/chat/completions`) does not support prompt caching. The `anthropic-beta: prompt-caching-2024-07-31` header has no effect through this path. All turns show 0 cache read/write tokens. The `fast-mode-2026-02-01` beta likely also doesn't function.
 
-If these features are important, they require either:
-- ElevenLabs adding native Anthropic Messages API support as a new `api_type`
-- A proxy server that translates Chat Completions → Anthropic Messages API with cache_control markers
+To get prompt caching working, either:
+- Request ElevenLabs add native Anthropic Messages API support as a new `api_type`
+- Use a proxy (Option C) that translates Chat Completions → native Anthropic Messages API with `cache_control` markers
 
 ### Additional Fix: Test all workflow transitions
 
-After applying fixes, test each transition path (Qualification → each sub-agent, and back) to ensure no crashes occur. Also test with different model combinations on each node.
+After applying fixes, test each transition path (Qualification → each sub-agent, and back) to confirm no crashes occur. If using multi-provider custom-llm (Option A), test that each provider's Chat Completions compatibility works correctly with ElevenLabs' conversation context format.
 
 ---
 
 ## Summary
 
-The conversation crashed due to a **platform bug in ElevenLabs' workflow transfer system**. The bug causes a 1011 server error when a workflow edge transfers from a `custom-llm` node to a native model node. This is confirmed to be a bug (not an architectural limitation) because the platform's own backup cascade system (`backup_llm_config`) is explicitly designed to switch between `custom-llm` and native models within the same conversation — and works correctly. The workflow transfer code path simply doesn't handle this transition the same way.
+The conversation crashed due to a **platform bug in ElevenLabs' workflow transfer system**. The bug causes a 1011 server error when a workflow edge transfers from a `custom-llm` node to a native model node. This is confirmed to be a bug (not an architectural limitation) because the platform's own backup cascade system (`backup_llm_config`) handles the same type of backend switch within the same conversation without issues.
 
-The transfer was also semantically incorrect — the user's self-assessment request should have stayed in the Qualification node. All four sub-agent nodes share this same vulnerable configuration.
+Claude Opus 4.6 is foundational to this agent and is only available via `custom-llm` (not in ElevenLabs' native model catalog). The fix must preserve Opus.
 
 **Recommended approach:**
-1. **Now:** Switch to all-native models (Option A) for maximum flexibility and zero crash risk. This gives access to 73 models across OpenAI, Google, Anthropic, xAI, and others — each node can use whichever model best fits its role.
-2. **Now:** File the `custom-llm` → native workflow transfer crash as a platform bug with ElevenLabs.
-3. **Later:** After ElevenLabs fixes the bug, optionally restore `custom-llm` with Claude Opus 4.6 on the Qualification node if the model's capabilities are specifically needed there.
+1. **Now:** Switch all sub-agent nodes to `llm: "custom-llm"` with per-node `custom_llm` blocks. Point each node to whichever provider/model best fits its role — Anthropic for Claude models, OpenAI for GPT-5, Google for Gemini, xAI for Grok. All major providers have Chat Completions compatible endpoints (confirmed live). This preserves Opus on Qualification, gives multi-provider flexibility on sub-agents, and avoids the workflow transfer bug entirely.
+2. **Now:** File the workflow transfer crash as a platform bug with ElevenLabs.
+3. **Now:** Tighten the Qualification node's routing conditions to prevent premature transfers on self-assessment/introspective requests.
