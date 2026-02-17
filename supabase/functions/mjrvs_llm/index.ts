@@ -43,9 +43,9 @@ const CORS_HEADERS = {
 };
 
 const SUPPORTED_MODELS = new Set<string>([
-  "gemini-3-flash-preview",
-  "gemini-2.5-flash",
-  "gemini-3-pro-preview",
+  "gemini-2.0-flash",
+  "gemini-2.5-flash-preview-04-17",
+  "gemini-2.5-pro-preview-03-25",
   "claude-opus-4-6",
   "claude-sonnet-4-5-20250929",
   "claude-haiku-4-5-20251001",
@@ -55,7 +55,7 @@ const SUPPORTED_MODELS = new Set<string>([
   "magistral-medium-2509",
 ]);
 
-const DEFAULT_FALLBACK_MODEL = "gemini-3-flash-preview";
+const DEFAULT_FALLBACK_MODEL = "gemini-2.0-flash";
 
 const jsonResponse = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {
