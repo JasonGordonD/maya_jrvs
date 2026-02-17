@@ -91,6 +91,7 @@ const App: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorLog, setErrorLog] = useState<ErrorLogEntry[]>([]);
   const [agentMode, setAgentMode] = useState<'listening' | 'speaking' | null>(null);
+  const [currentNode, setCurrentNode] = useState<string | null>(null);
 
   const transcriptBottomRef = useRef<HTMLDivElement>(null);
   const conversationRef = useRef<ReturnType<typeof useConversation> | null>(null);
@@ -114,10 +115,12 @@ const App: React.FC = () => {
   const conversation = useConversation({
     onConnect: () => {
       console.log('[MJRVS] Agent session connected');
+      setCurrentNode(null);
     },
     onDisconnect: () => {
       console.log('[MJRVS] Agent session disconnected');
       setAgentMode(null);
+      setCurrentNode(null);
     },
     onMessage: (message) => {
       const item: TranscriptItem = {
@@ -137,6 +140,14 @@ const App: React.FC = () => {
     },
     onError: (message, context) => {
       addError('AGENT_ERROR', message, 'VOICE_AGENT', context);
+    },
+    clientTools: {
+      announce_node: async (params: { node_name?: string }) => {
+        const nodeName = params.node_name || 'Unknown';
+        console.log('[MJRVS] Node transition:', nodeName);
+        setCurrentNode(nodeName);
+        return 'Node acknowledged';
+      },
     },
   });
 
@@ -454,6 +465,7 @@ const App: React.FC = () => {
                 <span className="provider-dot provider-dot-anthropic" />
                 <span className="maya-model-select" style={{ cursor: 'default' }}>
                   JRVS · {agentMode === 'speaking' ? 'SPEAKING' : agentMode === 'listening' ? 'LISTENING' : 'CONNECTED'}
+                  {currentNode && <span className="maya-node-indicator"> · {currentNode}</span>}
                 </span>
                 <span className="maya-model-latency">live</span>
               </div>
