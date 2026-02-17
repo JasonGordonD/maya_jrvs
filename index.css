@@ -265,7 +265,7 @@ body {
 
 .maya-sidebar-content {
   overflow-y: auto;
-  padding: 12px;
+  padding: 12px 12px 96px;
   display: flex;
   flex-direction: column;
   gap: 14px;
