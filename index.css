@@ -775,6 +775,157 @@ body {
   background: var(--border-accent);
 }
 
+/* Response component — streaming markdown renderer */
+.maya-response {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-primary);
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.maya-response > *:first-child {
+  margin-top: 0;
+}
+
+.maya-response > *:last-child {
+  margin-bottom: 0;
+}
+
+.maya-response p {
+  margin: 0.75em 0;
+  line-height: 1.7;
+}
+
+.maya-response h1,
+.maya-response h2,
+.maya-response h3,
+.maya-response h4,
+.maya-response h5,
+.maya-response h6 {
+  color: var(--text-primary);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  margin-top: 1.25em;
+  margin-bottom: 0.5em;
+  line-height: 1.3;
+}
+
+.maya-response h1 { font-size: 1.5em; }
+.maya-response h2 { font-size: 1.25em; }
+.maya-response h3 { font-size: 1.1em; }
+.maya-response h4 { font-size: 1em; }
+
+.maya-response strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.maya-response em {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.maya-response a {
+  color: var(--accent-warm);
+  text-decoration: none;
+}
+
+.maya-response a:hover {
+  color: var(--text-primary);
+}
+
+.maya-response pre {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  padding: 12px 16px;
+  overflow-x: auto;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.85em;
+  line-height: 1.6;
+  margin: 0.75em 0;
+}
+
+.maya-response pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+.maya-response code {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.875em;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  padding: 2px 6px;
+  color: var(--accent-warm);
+}
+
+.maya-response table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75em 0;
+  font-size: 0.9em;
+}
+
+.maya-response th,
+.maya-response td {
+  border: 1px solid var(--border-subtle);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.maya-response th {
+  background: var(--bg-elevated);
+  font-weight: 600;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.85em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.maya-response blockquote {
+  border-left: 3px solid var(--accent-warm);
+  background: var(--glass);
+  padding: 8px 16px;
+  margin: 0.75em 0;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.maya-response blockquote p {
+  margin: 0.25em 0;
+}
+
+.maya-response ul,
+.maya-response ol {
+  padding-left: 1.5em;
+  margin: 0.75em 0;
+  color: var(--text-primary);
+}
+
+.maya-response li {
+  margin: 0.25em 0;
+}
+
+.maya-response li::marker {
+  color: var(--accent-warm);
+}
+
+.maya-response hr {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: 1em 0;
+}
+
+.maya-response img {
+  max-width: 100%;
+  height: auto;
+}
+
 @media (max-width: 1024px) {
   .maya-header {
     grid-template-columns: 1fr;

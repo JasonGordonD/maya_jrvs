@@ -582,7 +582,7 @@ const App: React.FC = () => {
                       height: `${value * 100}%`,
                       opacity: 0.4 + value * 0.6,
                       background: 'linear-gradient(to top, var(--accent-warm-dim), var(--accent-warm))',
-                      boxShadow: value > 0.3 ? `0 0 ${Math.round(value * 8)}px rgba(200,164,110,0.25)` : 'none',
+                      boxShadow: value > 0.3 ? `0 0 ${Math.round(value * 8)}px rgba(255,45,120,0.25)` : 'none',
                     }}
                   />
                 ))}
