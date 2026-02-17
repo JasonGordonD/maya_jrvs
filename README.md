@@ -7,9 +7,7 @@ Browser-based executive AI assistant with a warm, frosted-glass interface and an
 - **Frontend**: React 19 + Vite 6 (single runtime tree at repo root)
 - **LLM client bridge**: `services/gemini.ts` (frontend -> Supabase Edge Function)
 - **Edge function**: `supabase/functions/mjrvs_llm/index.ts` (provider router)
-- **Voice hooks**:
-  - `hooks/useElevenLabs.ts` (browser -> proxy endpoint for TTS)
-  - `hooks/useSpeechToText.ts` (browser -> proxy websocket for realtime STT)
+- **Voice**: `useConversation` from `@elevenlabs/react` (connects to live ElevenLabs Conversational AI agent)
 
 ## Architecture
 
@@ -112,18 +110,10 @@ If your Edge Functions are deployed with `--no-verify-jwt`, the key can be omitt
 Optional:
 
 ```env
-# STT defaults to browser Web Speech API.
-# VITE_STT_PROXY_WS_URL is only for an optional custom realtime proxy.
-VITE_STT_PROXY_WS_URL=wss://<your-stt-proxy>
-VITE_ELEVENLABS_AUTO_MODE=false
-VITE_ELEVENLABS_VOICE_ID=<non-secret-id>
-VITE_ELEVENLABS_OUTPUT_FORMAT=mp3_44100_64
-VITE_ELEVENLABS_MODEL_ID=eleven_v3
+VITE_ELEVENLABS_AGENT_ID=agent_0401khmtcyfef6hbpcvchjv5jj02
 ```
 
-Runtime note:
-- `Web STT` uses the browser SpeechRecognition engine and follows browser-default input device.
-- `Proxy STT` (realtime websocket path) uses the selected mic device ID from the Mic selector.
+If `VITE_ELEVENLABS_AGENT_ID` is not set, the app defaults to the production JRVS agent ID.
 
 ### 3) Edge secrets (Supabase project)
 
