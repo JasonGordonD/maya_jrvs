@@ -99,11 +99,11 @@ All four sub-agent nodes use the same pattern: `llm: "claude-sonnet-4-5"` with `
 
 ## Recommended Fixes
 
-### Fix 1: Use `custom-llm` consistently across all nodes (Immediate)
+### Fix Option A: Per-node custom LLM endpoints with different models (Recommended)
 
-Change all sub-agent nodes to use `custom-llm` instead of native `claude-sonnet-4-5`. Remove the `custom_llm: null` override so they inherit the parent agent's custom LLM configuration. If you want different models per node, configure different custom LLM endpoints per node rather than mixing native and custom backends.
+Keep the Qualification node on `custom-llm` with `claude-opus-4-6`, and give each sub-agent node its own `custom_llm` block pointing to the same Anthropic API but with `claude-sonnet-4-5` as the model. This avoids the backend switch entirely while preserving different models per node.
 
-For example, in each sub-agent node's `conversation_config.agent.prompt`, change:
+In each sub-agent node's `conversation_config.agent.prompt`, change:
 ```json
 {
     "llm": "claude-sonnet-4-5",
@@ -113,22 +113,48 @@ For example, in each sub-agent node's `conversation_config.agent.prompt`, change
 to:
 ```json
 {
-    "llm": "custom-llm"
+    "llm": "custom-llm",
+    "custom_llm": {
+        "url": "https://api.anthropic.com/v1",
+        "model_id": "claude-sonnet-4-5",
+        "api_key": { "secret_id": "yrYwgLxgCS8SjHIdZF3b" },
+        "request_headers": {
+            "content-type": "application/json",
+            "anthropic-beta": "prompt-caching-2024-07-31"
+        },
+        "api_version": "2023-06-01",
+        "api_type": "chat_completions"
+    }
 }
 ```
-This will let the nodes inherit the parent's custom LLM configuration (Anthropic API with `claude-opus-4-6`). If you specifically want `claude-sonnet-4-5` for those nodes, set up a separate custom LLM configuration pointing to Anthropic with model_id `claude-sonnet-4-5`.
 
-### Fix 2: Tighten the Qualification node routing conditions
+This gives `claude-opus-4-6` on Qualification and `claude-sonnet-4-5` on sub-agents, all through the same backend type, so no backend switch occurs during transfers. You also retain full control over headers, model, and API key per node.
 
-The Qualification node's `additional_prompt` is too permissive about transferring. A self-assessment question ("what is missing from you?") should not trigger a Thought Partner transfer. Consider adding explicit examples or negative conditions:
+### Fix Option B: Switch Qualification to native, keep sub-agents native
+
+Make the Qualification node use a native ElevenLabs model instead of custom-llm so all nodes use the same backend type. This eliminates the backend mismatch but means giving up the direct Anthropic API connection and `claude-opus-4-6` on the Qualification node.
+
+Only viable if `claude-opus-4-6` and the custom headers (`fast-mode`, `prompt-caching`) aren't critical to the Qualification node.
+
+### Fix Option C: Remove explicit `custom_llm: null` and test
+
+Instead of setting `custom_llm: null` in the sub-agent nodes, remove the `custom_llm` key entirely. The platform may then inherit the parent's custom LLM config while still respecting the `llm: "claude-sonnet-4-5"` model selection. This is speculative and depends on ElevenLabs' override hierarchy, but it's a low-effort test worth trying before committing to a larger change.
+
+### Fix Option D: Use the backup LLM cascade as a workaround
+
+The existing `backup_llm_config` (order: `gemini-3-flash-preview`, `gemini-2.5-flash`, `claude-sonnet-4-5`, `custom-llm`) with `cascade_timeout_seconds: 8.0` might provide a fallback path. Reorder the cascade to try `custom-llm` first on the sub-agents. This is a partial mitigation — the custom-to-native switch during a workflow transfer is arguably a platform bug (1011 should not be thrown) and should also be filed with ElevenLabs support.
+
+### Additional Fix: Tighten the Qualification node routing conditions
+
+Regardless of which LLM backend fix is chosen, the Qualification node's `additional_prompt` is too permissive about transferring. A self-assessment question ("what is missing from you?") should not trigger a Thought Partner transfer. Add explicit negative conditions:
 
 > "Self-reflection questions about your own capabilities, knowledge base, or configuration should be handled in this node — do NOT transfer for these."
 
-### Fix 3: Validate `api_type` configuration
+### Additional Fix: Validate `api_type` configuration
 
-Investigate whether `api_type: "chat_completions"` is the correct setting for the Anthropic Messages API endpoint. If ElevenLabs supports an `anthropic` or `messages` API type, switching to it may resolve the prompt caching issue and improve compatibility.
+Investigate whether `api_type: "chat_completions"` is the correct setting for the Anthropic Messages API endpoint. If ElevenLabs supports an `anthropic` or `messages` API type, switching to it may resolve the prompt caching issue (all turns currently show 0 cache read/write tokens) and improve compatibility.
 
-### Fix 4: Test all workflow transitions
+### Additional Fix: Test all workflow transitions
 
 Since all four sub-agent nodes share the same problematic LLM configuration pattern, test each transition path after applying fixes to ensure none of them reproduce the crash.
 
