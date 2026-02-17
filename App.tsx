@@ -30,7 +30,6 @@ import { Response } from './Response';
 import { MicSelector } from './MicSelector';
 import { FileUpload } from './FileUpload';
 import { buildSupabaseAuthHeaders, getBrowserSupabaseConfig } from './services/supabaseConfig';
-import { Orb } from './components/ui/orb';
 
 type ModelOption = {
   model: string;
@@ -413,35 +412,6 @@ const App: React.FC = () => {
     state: isAgentConnected || transcript.length > 0,
   };
 
-  // Audio volume levels for 3D Orb reactivity
-  const [inputVolume, setInputVolume] = useState(0);
-  const [outputVolume, setOutputVolume] = useState(0);
-  useEffect(() => {
-    if (!isAgentConnected) {
-      setInputVolume(0);
-      setOutputVolume(0);
-      return;
-    }
-    let frameId: number;
-    const update = () => {
-      const inVol = conversation.getInputVolume();
-      const outVol = conversation.getOutputVolume();
-      setInputVolume(typeof inVol === 'number' ? Math.min(1, inVol) : 0);
-      setOutputVolume(typeof outVol === 'number' ? Math.min(1, outVol) : 0);
-      frameId = requestAnimationFrame(update);
-    };
-    frameId = requestAnimationFrame(update);
-    return () => cancelAnimationFrame(frameId);
-  }, [conversation, isAgentConnected]);
-
-  // Map conversation state to orb agent state
-  const getAgentState = useCallback(() => {
-    if (conversation.status === 'connecting') return 'thinking' as const;
-    if (isSpeaking) return 'talking' as const;
-    if (isAgentConnected) return 'listening' as const;
-    return null;
-  }, [conversation.status, isSpeaking, isAgentConnected]);
-
   const [transcriptCopied, setTranscriptCopied] = useState(false);
 
   // Export transcript as formatted markdown
@@ -662,19 +632,6 @@ const App: React.FC = () => {
                   )}
                 </Message>
               ))
-            )}
-
-            {/* 3D Orb — reacts to both input and output audio */}
-            {(isAgentConnected || isAgentConnecting) && (
-              <div className="maya-orb-container">
-                <Orb
-                  agentState={getAgentState()}
-                  colors={['#ff2d78', '#c2185b']}
-                  volumeMode="manual"
-                  manualInput={inputVolume}
-                  manualOutput={outputVolume}
-                />
-              </div>
             )}
 
             {isProcessing && (
