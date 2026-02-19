@@ -1010,6 +1010,23 @@ body {
   height: auto;
 }
 
+.maya-orb-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 8px 0;
+}
+
+.maya-orb-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-warm);
+  opacity: 0.8;
+}
+
 @media (max-width: 1024px) {
   .maya-header {
     grid-template-columns: 1fr;
