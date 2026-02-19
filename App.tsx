@@ -29,6 +29,7 @@ import TactileButton from './TactileButton';
 import { Response } from './Response';
 import { MicSelector } from './MicSelector';
 import { FileUpload } from './FileUpload';
+import Orb from './Orb';
 import { buildSupabaseAuthHeaders, getBrowserSupabaseConfig } from './services/supabaseConfig';
 
 type ModelOption = {
@@ -96,6 +97,9 @@ const App: React.FC = () => {
   const [currentNode, setCurrentNode] = useState<string | null>(null);
   const [sessionStart, setSessionStart] = useState<Date | null>(null);
   const [sessionElapsed, setSessionElapsed] = useState('00:00');
+
+  const [inputVolume, setInputVolume] = useState(0);
+  const [outputVolume, setOutputVolume] = useState(0);
 
   const transcriptBottomRef = useRef<HTMLDivElement>(null);
   const conversationRef = useRef<ReturnType<typeof useConversation> | null>(null);
@@ -366,6 +370,20 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [sessionStart]);
 
+  // Poll audio volume levels when connected
+  useEffect(() => {
+    if (!isAgentConnected) {
+      setInputVolume(0);
+      setOutputVolume(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setInputVolume(conversation.getInputVolume?.() ?? 0);
+      setOutputVolume(conversation.getOutputVolume?.() ?? 0);
+    }, 80);
+    return () => clearInterval(interval);
+  }, [conversation, isAgentConnected]);
+
   // Auto-scroll transcript
   useEffect(() => {
     transcriptBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -603,7 +621,19 @@ const App: React.FC = () => {
           )}
           <div className="maya-conversation-scroll maya-scrollbar">
             {transcript.length === 0 ? (
-              <ConversationEmptyState />
+              <ConversationEmptyState
+                icon={
+                  <Orb
+                    isSpeaking={isSpeaking}
+                    isConnected={isAgentConnected}
+                    inputVolume={inputVolume}
+                    outputVolume={outputVolume}
+                    size={52}
+                  />
+                }
+                title={isAgentConnected ? (isSpeaking ? 'Maya is speaking' : 'Listening') : 'Session idle'}
+                description={isAgentConnected ? 'Voice session active — speak or type below.' : 'Start a conversation to bring Maya online.'}
+              />
             ) : (
               transcript.map((item) => (
                 <Message
@@ -638,6 +668,20 @@ const App: React.FC = () => {
               <div className="maya-processing-line">
                 <Loader2 size={14} className="animate-spin" />
                 <span>Maya is reasoning...</span>
+              </div>
+            )}
+            {isAgentConnected && transcript.length > 0 && (
+              <div className="maya-orb-inline">
+                <Orb
+                  isSpeaking={isSpeaking}
+                  isConnected={isAgentConnected}
+                  inputVolume={inputVolume}
+                  outputVolume={outputVolume}
+                  size={40}
+                />
+                <span className="maya-orb-label">
+                  {isSpeaking ? 'Speaking' : 'Listening'}
+                </span>
               </div>
             )}
             <div ref={transcriptBottomRef} />
