@@ -10,6 +10,7 @@ import {
   Loader2,
   Mic,
   MicOff,
+  Monitor,
   Paperclip,
   Radio,
   Send,
@@ -29,6 +30,7 @@ import TactileButton from './TactileButton';
 import { Response } from './Response';
 import { MicSelector } from './MicSelector';
 import { FileUpload } from './FileUpload';
+import { SystemPanel } from './SystemPanel';
 import { buildSupabaseAuthHeaders, getBrowserSupabaseConfig } from './services/supabaseConfig';
 
 type ModelOption = {
@@ -85,6 +87,7 @@ const App: React.FC = () => {
   const [latencyByModel, setLatencyByModel] = useState<Record<string, number>>({});
 
   const [showContextSidebar, setShowContextSidebar] = useState(true);
+  const [showSystemPanel, setShowSystemPanel] = useState(false);
   const [showFileUpload, setShowFileUpload] = useState(false);
   const [showMicSelector, setShowMicSelector] = useState(false);
   const [selectedMic, setSelectedMic] = useState('');
@@ -502,6 +505,14 @@ const App: React.FC = () => {
             </TactileButton>
           )}
           <TactileButton
+            state={showSystemPanel ? 'online' : 'default'}
+            icon={<Monitor size={14} />}
+            onClick={() => setShowSystemPanel((prev) => !prev)}
+            title="System diagnostics"
+          >
+            System
+          </TactileButton>
+          <TactileButton
             state={showMicSelector ? 'online' : 'default'}
             icon={<Settings2 size={14} />}
             onClick={() => setShowMicSelector((prev) => !prev)}
@@ -690,6 +701,25 @@ const App: React.FC = () => {
       <footer className="maya-footer maya-mono">
         PRMPT · MAYA JRVS v3.0
       </footer>
+
+      {showSystemPanel && (
+        <GlassPanel variant="heavy" className="maya-modal maya-modal-lg">
+          <div className="maya-modal-header">
+            <h2>System</h2>
+            <button onClick={() => setShowSystemPanel(false)}>Close</button>
+          </div>
+          <SystemPanel
+            isAgentConnected={isAgentConnected}
+            agentMode={agentMode}
+            selectedModel={selectedModel}
+            provider={selectedModelConfig.provider}
+            transcript={transcript}
+            errorLog={errorLog}
+            sessionElapsed={sessionElapsed}
+            currentNode={currentNode}
+          />
+        </GlassPanel>
+      )}
 
       {showMicSelector && (
         <GlassPanel variant="heavy" className="maya-modal maya-modal-sm">
