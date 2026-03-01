@@ -21,9 +21,15 @@ import { Textarea } from "@/components/ui/textarea"
 
 export interface ConversationBarProps {
   /**
-   * ElevenLabs Agent ID to connect to
+   * ElevenLabs Agent ID to connect to (used when getSignedUrl is not provided)
    */
-  agentId: string
+  agentId?: string
+
+  /**
+   * Optional callback to fetch a signed URL from your backend.
+   * If provided, the conversation will use websocket + signed URL auth.
+   */
+  getSignedUrl?: () => Promise<string>
 
   /**
    * Custom className for the container
@@ -68,6 +74,7 @@ export const ConversationBar = React.forwardRef<
   (
     {
       agentId,
+      getSignedUrl,
       className,
       waveformClassName,
       onConnect,
@@ -127,6 +134,22 @@ export const ConversationBar = React.forwardRef<
 
         await getMicStream()
 
+        if (getSignedUrl) {
+          const signedUrl = await getSignedUrl()
+          await conversation.startSession({
+            signedUrl,
+            connectionType: "websocket",
+            onStatusChange: (status) => setAgentState(status.status),
+          })
+          return
+        }
+
+        if (!agentId) {
+          throw new Error(
+            "ConversationBar requires either getSignedUrl or agentId"
+          )
+        }
+
         await conversation.startSession({
           agentId,
           connectionType: "webrtc",
@@ -137,7 +160,7 @@ export const ConversationBar = React.forwardRef<
         setAgentState("disconnected")
         onError?.(error as Error)
       }
-    }, [conversation, getMicStream, agentId, onError])
+    }, [conversation, getMicStream, getSignedUrl, agentId, onError])
 
     const handleEndSession = React.useCallback(() => {
       conversation.endSession()
