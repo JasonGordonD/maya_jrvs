@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server"
 
+import { getElevenLabsApiKey } from "@/lib/server-env"
+
 export const runtime = "nodejs"
 
 async function createScribeToken() {
-  const apiKey = process.env.ELEVENLABS_API_KEY
+  const apiKey = getElevenLabsApiKey()
 
   if (!apiKey) {
     return NextResponse.json(

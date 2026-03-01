@@ -56,6 +56,28 @@ npm start
    - `NEXT_PUBLIC_ELEVENLABS_AGENT_ID`
 4. Deploy.
 
+### Render troubleshooting (500 Missing ELEVENLABS_API_KEY)
+
+If `/api/signed-url` returns:
+
+```json
+{"error":"Missing ELEVENLABS_API_KEY"}
+```
+
+do the following in Render:
+
+1. Open the correct Web Service (`maya-jrvs`) and go to **Environment**.
+2. Ensure variables are set exactly as:
+   - `ELEVENLABS_API_KEY`
+   - `NEXT_PUBLIC_ELEVENLABS_AGENT_ID`
+3. Click **Save Changes**.
+4. Trigger a **Manual Deploy** (prefer **Clear build cache & deploy** once).
+5. Re-test:
+   - `GET /api/signed-url`
+   - `POST /api/scribe-token`
+
+The server routes also support compatibility aliases (`VITE_ELEVENLABS_API_KEY`, `VITE_ELEVENLABS_AGENT_ID`, etc.), but the two keys above are the canonical configuration.
+
 ## API Routes
 
 - `GET /api/signed-url`  

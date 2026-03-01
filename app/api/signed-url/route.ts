@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server"
 
+import { getElevenLabsAgentId, getElevenLabsApiKey } from "@/lib/server-env"
+
 export const runtime = "nodejs"
 
 export async function GET() {
-  const apiKey = process.env.ELEVENLABS_API_KEY
-  const agentId = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID
+  const apiKey = getElevenLabsApiKey()
+  const agentId = getElevenLabsAgentId()
 
   if (!apiKey) {
     return NextResponse.json(
