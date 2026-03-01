@@ -52,6 +52,13 @@ export interface ConversationBarProps {
   onDisconnect?: () => void
 
   /**
+   * Callback when connection status changes
+   */
+  onConnectionStatusChange?: (
+    status: "disconnected" | "connecting" | "connected" | "disconnecting"
+  ) => void
+
+  /**
    * Callback when an error occurs
    */
   onError?: (error: Error) => void
@@ -62,6 +69,11 @@ export interface ConversationBarProps {
   onDebug?: (event: unknown) => void
 
   /**
+   * Callback when speaking state changes
+   */
+  onSpeakingChange?: (isSpeaking: boolean) => void
+
+  /**
    * Callback when a message is received
    */
   onMessage?: (message: { source: "user" | "ai"; message: string }) => void
@@ -70,6 +82,11 @@ export interface ConversationBarProps {
    * Callback when user sends a message
    */
   onSendMessage?: (message: string) => void
+
+  /**
+   * Callback when a conversation ID is available
+   */
+  onConversationId?: (conversationId: string) => void
 
   /**
    * Preferred microphone input device id
@@ -89,10 +106,13 @@ export const ConversationBar = React.forwardRef<
       waveformClassName,
       onConnect,
       onDisconnect,
+      onConnectionStatusChange,
       onError,
       onDebug,
+      onSpeakingChange,
       onMessage,
       onSendMessage,
+      onConversationId,
       inputDeviceId,
     },
     ref
@@ -156,12 +176,13 @@ export const ConversationBar = React.forwardRef<
 
         if (getSignedUrl) {
           const signedUrl = await getSignedUrl()
-          await conversation.startSession({
+          const conversationId = await conversation.startSession({
             signedUrl,
             connectionType: "websocket",
             onStatusChange: (status) => setAgentState(status.status),
             ...(inputDeviceId ? { inputDeviceId } : {}),
           })
+          onConversationId?.(conversationId)
           return
         }
 
@@ -171,12 +192,13 @@ export const ConversationBar = React.forwardRef<
           )
         }
 
-        await conversation.startSession({
+        const conversationId = await conversation.startSession({
           agentId,
           connectionType: "webrtc",
           onStatusChange: (status) => setAgentState(status.status),
           ...(inputDeviceId ? { inputDeviceId } : {}),
         })
+        onConversationId?.(conversationId)
       } catch (error) {
         console.error("Error starting conversation:", error)
         setAgentState("disconnected")
@@ -188,6 +210,7 @@ export const ConversationBar = React.forwardRef<
       getSignedUrl,
       agentId,
       onError,
+      onConversationId,
       inputDeviceId,
     ])
 
@@ -260,6 +283,15 @@ export const ConversationBar = React.forwardRef<
         mediaStreamRef.current = null
       }
     }, [inputDeviceId])
+
+    React.useEffect(() => {
+      if (!agentState) return
+      onConnectionStatusChange?.(agentState)
+    }, [agentState, onConnectionStatusChange])
+
+    React.useEffect(() => {
+      onSpeakingChange?.(conversation.isSpeaking)
+    }, [conversation.isSpeaking, onSpeakingChange])
 
     return (
       <div

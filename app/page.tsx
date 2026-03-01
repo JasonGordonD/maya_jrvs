@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { ChevronDown } from "lucide-react"
+import { Check, ChevronDown, Copy } from "lucide-react"
 
 import { ConversationBar } from "@/components/ui/conversation-bar"
 import { Message, MessageContent } from "@/components/ui/message"
@@ -35,6 +35,11 @@ type ErrorLogEntry = {
 }
 
 type MobilePanelTab = "tools" | "errors"
+type ConnectionStatus =
+  | "disconnected"
+  | "connecting"
+  | "connected"
+  | "disconnecting"
 
 const createMessageId = () =>
   `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
@@ -55,6 +60,40 @@ const stringifyUnknown = (value: unknown): string => {
   } catch {
     return String(value)
   }
+}
+
+const truncateConversationId = (id: string): string => {
+  if (id.length <= 18) return id
+  return `${id.slice(0, 8)}...${id.slice(-6)}`
+}
+
+const normalizeNodeLabel = (value: string): string =>
+  value
+    .replace(/^["'`[\s]+|["'`\].,;:\s]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+
+const extractNodeFromMessage = (message: string): string | null => {
+  const patterns = [
+    /\bnode\s*[:=-]\s*([A-Za-z0-9 .()'/-]{2,80})/i,
+    /\bactive\s+node\s*[:=-]\s*([A-Za-z0-9 .()'/-]{2,80})/i,
+    /\bswitch(?:ing)?\s+to\s+([A-Za-z0-9 .()'/-]{2,80})/i,
+    /\brout(?:e|ed)\s+to\s+([A-Za-z0-9 .()'/-]{2,80})/i,
+    /"node"\s*:\s*"([^"]{2,80})"/i,
+    /"activeNode"\s*:\s*"([^"]{2,80})"/i,
+  ]
+
+  for (const pattern of patterns) {
+    const match = message.match(pattern)
+    if (!match?.[1]) continue
+
+    const normalized = normalizeNodeLabel(match[1])
+    if (normalized && normalized.length <= 80) {
+      return normalized
+    }
+  }
+
+  return null
 }
 
 const toolKeywordPattern =
@@ -292,9 +331,22 @@ const errorSeverityClassMap: Record<ErrorSeverity, string> = {
     "border-zinc-300 bg-zinc-50 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100",
 }
 
+const statusDotClassMap: Record<ConnectionStatus, string> = {
+  connected: "bg-emerald-500",
+  disconnected: "bg-zinc-400 dark:bg-zinc-500",
+  connecting: "bg-amber-400 animate-pulse",
+  disconnecting: "bg-amber-400 animate-pulse",
+}
+
 export default function Home() {
   const [messages, setMessages] = useState<TranscriptMessage[]>([])
   const [selectedMicId, setSelectedMicId] = useState<string>("")
+  const [activeNode, setActiveNode] = useState<string>("—")
+  const [conversationId, setConversationId] = useState<string>("")
+  const [copiedConversationId, setCopiedConversationId] = useState(false)
+  const [connectionStatus, setConnectionStatus] =
+    useState<ConnectionStatus>("disconnected")
+  const [isAgentSpeaking, setIsAgentSpeaking] = useState(false)
   const [toolLogEntries, setToolLogEntries] = useState<ToolLogEntry[]>([])
   const [errorLogEntries, setErrorLogEntries] = useState<ErrorLogEntry[]>([])
   const [isToolPanelOpen, setIsToolPanelOpen] = useState(true)
@@ -340,6 +392,27 @@ export default function Home() {
     errorLogRef.current.scrollTop = errorLogRef.current.scrollHeight
   }, [errorLogEntries])
 
+  useEffect(() => {
+    if (!copiedConversationId) return
+
+    const timeoutId = window.setTimeout(() => {
+      setCopiedConversationId(false)
+    }, 1500)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [copiedConversationId])
+
+  const handleCopyConversationId = useCallback(async () => {
+    if (!conversationId) return
+
+    try {
+      await navigator.clipboard.writeText(conversationId)
+      setCopiedConversationId(true)
+    } catch (error) {
+      console.error("[JRVS] failed to copy conversation id", error)
+    }
+  }, [conversationId])
+
   const appendToolLogEntry = useCallback((entry: ToolLogEntry | null) => {
     if (!entry) return
 
@@ -362,6 +435,11 @@ export default function Home() {
     (event: unknown) => {
       console.log("[JRVS] onDebug", event)
       appendToolLogEntry(createToolLogEntry(event))
+
+      const nodeFromDebug = extractNodeFromMessage(stringifyUnknown(event))
+      if (nodeFromDebug) {
+        setActiveNode(nodeFromDebug)
+      }
     },
     [appendToolLogEntry]
   )
@@ -369,6 +447,13 @@ export default function Home() {
   const handleConversationMessage = useCallback((event: ConversationEvent) => {
     console.log("[JRVS] onMessage", event)
     appendToolLogEntry(createToolLogEntry(event.message))
+
+    if (event.source === "ai") {
+      const detectedNode = extractNodeFromMessage(event.message)
+      if (detectedNode) {
+        setActiveNode(detectedNode)
+      }
+    }
 
     const content = event.message.trim()
     if (!content) return
@@ -535,9 +620,59 @@ export default function Home() {
 
   return (
     <main className="min-h-screen p-4 md:p-6">
-      <div className="mx-auto flex h-[calc(100vh-2rem)] w-full max-w-7xl flex-col gap-4 md:h-[calc(100vh-3rem)] md:flex-row md:gap-6">
-        <section className="flex min-h-0 w-full flex-col md:w-[70%]">
-          <h1 className="mb-4 text-3xl font-semibold">JRVS Dashboard</h1>
+      <div className="mx-auto flex h-[calc(100vh-2rem)] w-full max-w-7xl flex-col gap-4 md:h-[calc(100vh-3rem)]">
+        <header className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-zinc-100 shadow-sm">
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-xs sm:text-sm">
+            <div className="min-w-0 truncate">
+              <span className="text-zinc-400">Node:</span>{" "}
+              <span className="font-medium">{activeNode}</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleCopyConversationId}
+              disabled={!conversationId}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-md border border-zinc-800 px-2 py-1 font-mono text-xs transition-colors",
+                conversationId
+                  ? "hover:bg-zinc-900"
+                  : "cursor-not-allowed opacity-60"
+              )}
+              title={
+                conversationId
+                  ? "Click to copy conversation ID"
+                  : "Conversation ID not available yet"
+              }
+            >
+              {copiedConversationId ? (
+                <Check className="h-3.5 w-3.5 text-emerald-400" />
+              ) : (
+                <Copy className="h-3.5 w-3.5 text-zinc-400" />
+              )}
+              <span>
+                {conversationId ? truncateConversationId(conversationId) : "—"}
+              </span>
+            </button>
+
+            <div className="flex items-center justify-end gap-2">
+              <span
+                className={cn(
+                  "inline-block h-2.5 w-2.5 rounded-full",
+                  statusDotClassMap[connectionStatus]
+                )}
+              />
+              <span className="capitalize">{connectionStatus}</span>
+              {isAgentSpeaking && (
+                <span className="animate-pulse rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] text-emerald-300">
+                  Speaking...
+                </span>
+              )}
+            </div>
+          </div>
+        </header>
+
+        <div className="flex min-h-0 flex-1 flex-col gap-4 md:flex-row md:gap-6">
+          <section className="flex min-h-0 w-full flex-col md:w-[70%]">
 
           <div className="bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border shadow-sm">
             <div className="border-b px-4 py-3">
@@ -585,6 +720,9 @@ export default function Home() {
               onDisconnect={() => {
                 console.log("[JRVS] onDisconnect")
               }}
+              onConnectionStatusChange={setConnectionStatus}
+              onSpeakingChange={setIsAgentSpeaking}
+              onConversationId={setConversationId}
               onMessage={handleConversationMessage}
               onDebug={handleConversationDebug}
               onSendMessage={handleUserTextMessage}
@@ -639,6 +777,7 @@ export default function Home() {
           <div className="min-h-0 flex-[3]">{renderToolLogPanel()}</div>
           <div className="min-h-0 flex-[2]">{renderErrorPanel()}</div>
         </aside>
+      </div>
       </div>
     </main>
   )
