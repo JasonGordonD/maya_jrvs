@@ -65,6 +65,11 @@ export interface ConversationBarProps {
    * Callback when user sends a message
    */
   onSendMessage?: (message: string) => void
+
+  /**
+   * Preferred microphone input device id
+   */
+  inputDeviceId?: string
 }
 
 export const ConversationBar = React.forwardRef<
@@ -82,6 +87,7 @@ export const ConversationBar = React.forwardRef<
       onError,
       onMessage,
       onSendMessage,
+      inputDeviceId,
     },
     ref
   ) => {
@@ -122,11 +128,16 @@ export const ConversationBar = React.forwardRef<
     const getMicStream = React.useCallback(async () => {
       if (mediaStreamRef.current) return mediaStreamRef.current
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const audioConstraints: MediaTrackConstraints | true = inputDeviceId
+        ? { deviceId: { exact: inputDeviceId } }
+        : true
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: audioConstraints,
+      })
       mediaStreamRef.current = stream
 
       return stream
-    }, [])
+    }, [inputDeviceId])
 
     const startConversation = React.useCallback(async () => {
       try {
@@ -140,6 +151,7 @@ export const ConversationBar = React.forwardRef<
             signedUrl,
             connectionType: "websocket",
             onStatusChange: (status) => setAgentState(status.status),
+            ...(inputDeviceId ? { inputDeviceId } : {}),
           })
           return
         }
@@ -154,13 +166,14 @@ export const ConversationBar = React.forwardRef<
           agentId,
           connectionType: "webrtc",
           onStatusChange: (status) => setAgentState(status.status),
+          ...(inputDeviceId ? { inputDeviceId } : {}),
         })
       } catch (error) {
         console.error("Error starting conversation:", error)
         setAgentState("disconnected")
         onError?.(error as Error)
       }
-    }, [conversation, getMicStream, getSignedUrl, agentId, onError])
+    }, [conversation, getMicStream, getSignedUrl, agentId, onError, inputDeviceId])
 
     const handleEndSession = React.useCallback(() => {
       conversation.endSession()
@@ -224,6 +237,13 @@ export const ConversationBar = React.forwardRef<
         }
       }
     }, [])
+
+    React.useEffect(() => {
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((t) => t.stop())
+        mediaStreamRef.current = null
+      }
+    }, [inputDeviceId])
 
     return (
       <div
