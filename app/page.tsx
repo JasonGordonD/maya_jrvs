@@ -13,6 +13,7 @@ type ConversationEvent = { source: "user" | "ai"; message: string }
 
 type TranscriptMessage = {
   id: string
+  timestamp: string
   source: "user" | "ai"
   message: string
 }
@@ -41,6 +42,8 @@ type ConnectionStatus =
   | "connected"
   | "disconnecting"
 
+type SpeakerLabel = "User" | "Maya"
+
 const createMessageId = () =>
   `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
 
@@ -66,6 +69,15 @@ const truncateConversationId = (id: string): string => {
   if (id.length <= 18) return id
   return `${id.slice(0, 8)}...${id.slice(-6)}`
 }
+
+const getSpeakerLabel = (source: TranscriptMessage["source"]): SpeakerLabel =>
+  source === "user" ? "User" : "Maya"
+
+const formatTranscriptLine = (entry: TranscriptMessage): string =>
+  `[${entry.timestamp}] ${getSpeakerLabel(entry.source)}: ${entry.message}`
+
+const copyButtonClassName =
+  "inline-flex items-center gap-1 rounded-md border border-zinc-800 px-2 py-1 font-mono text-xs transition-colors hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
 
 const normalizeNodeLabel = (value: string): string =>
   value
@@ -344,6 +356,10 @@ export default function Home() {
   const [activeNode, setActiveNode] = useState<string>("—")
   const [conversationId, setConversationId] = useState<string>("")
   const [copiedConversationId, setCopiedConversationId] = useState(false)
+  const [copiedTranscript, setCopiedTranscript] = useState(false)
+  const [copiedToolLog, setCopiedToolLog] = useState(false)
+  const [copiedErrorLog, setCopiedErrorLog] = useState(false)
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("disconnected")
   const [isAgentSpeaking, setIsAgentSpeaking] = useState(false)
@@ -402,16 +418,108 @@ export default function Home() {
     return () => window.clearTimeout(timeoutId)
   }, [copiedConversationId])
 
+  useEffect(() => {
+    if (!copiedTranscript) return
+
+    const timeoutId = window.setTimeout(() => {
+      setCopiedTranscript(false)
+    }, 1500)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [copiedTranscript])
+
+  useEffect(() => {
+    if (!copiedToolLog) return
+
+    const timeoutId = window.setTimeout(() => {
+      setCopiedToolLog(false)
+    }, 1500)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [copiedToolLog])
+
+  useEffect(() => {
+    if (!copiedErrorLog) return
+
+    const timeoutId = window.setTimeout(() => {
+      setCopiedErrorLog(false)
+    }, 1500)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [copiedErrorLog])
+
+  useEffect(() => {
+    if (!copiedMessageId) return
+
+    const timeoutId = window.setTimeout(() => {
+      setCopiedMessageId(null)
+    }, 1200)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [copiedMessageId])
+
+  const copyToClipboard = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch (error) {
+      console.error("[JRVS] clipboard copy failed", error)
+      return false
+    }
+  }, [])
+
   const handleCopyConversationId = useCallback(async () => {
     if (!conversationId) return
 
-    try {
-      await navigator.clipboard.writeText(conversationId)
+    const copied = await copyToClipboard(conversationId)
+    if (copied) {
       setCopiedConversationId(true)
-    } catch (error) {
-      console.error("[JRVS] failed to copy conversation id", error)
     }
-  }, [conversationId])
+  }, [conversationId, copyToClipboard])
+
+  const handleCopyTranscript = useCallback(async () => {
+    if (messages.length === 0) return
+    const payload = messages.map((entry) => formatTranscriptLine(entry)).join("\n")
+    const copied = await copyToClipboard(payload)
+    if (copied) {
+      setCopiedTranscript(true)
+    }
+  }, [messages, copyToClipboard])
+
+  const handleCopyToolLog = useCallback(async () => {
+    if (toolLogEntries.length === 0) return
+    const payload = toolLogEntries
+      .map(
+        (entry) =>
+          `[${entry.timestamp}] ${entry.toolName} -> ${entry.parameters} -> ${entry.resultSummary}`
+      )
+      .join("\n")
+    const copied = await copyToClipboard(payload)
+    if (copied) {
+      setCopiedToolLog(true)
+    }
+  }, [toolLogEntries, copyToClipboard])
+
+  const handleCopyErrorLog = useCallback(async () => {
+    if (errorLogEntries.length === 0) return
+    const payload = errorLogEntries
+      .map((entry) => `[${entry.timestamp}] ${entry.message}`)
+      .join("\n")
+    const copied = await copyToClipboard(payload)
+    if (copied) {
+      setCopiedErrorLog(true)
+    }
+  }, [errorLogEntries, copyToClipboard])
+
+  const handleCopyMessage = useCallback(
+    async (entry: TranscriptMessage) => {
+      const copied = await copyToClipboard(formatTranscriptLine(entry))
+      if (copied) {
+        setCopiedMessageId(entry.id)
+      }
+    },
+    [copyToClipboard]
+  )
 
   const appendToolLogEntry = useCallback((entry: ToolLogEntry | null) => {
     if (!entry) return
@@ -457,6 +565,7 @@ export default function Home() {
 
     const content = event.message.trim()
     if (!content) return
+    const eventTimestamp = createTimestamp()
 
     setMessages((previous) => {
       const last = previous[previous.length - 1]
@@ -470,6 +579,7 @@ export default function Home() {
           ...previous,
           {
             id: createMessageId(),
+            timestamp: eventTimestamp,
             source: "user",
             message: content,
           },
@@ -495,6 +605,7 @@ export default function Home() {
         ...previous,
         {
           id: createMessageId(),
+          timestamp: eventTimestamp,
           source: "ai",
           message: content,
         },
@@ -505,6 +616,7 @@ export default function Home() {
   const handleUserTextMessage = useCallback((message: string) => {
     const content = message.trim()
     if (!content) return
+    const sentTimestamp = createTimestamp()
 
     setMessages((previous) => {
       const last = previous[previous.length - 1]
@@ -516,6 +628,7 @@ export default function Home() {
         ...previous,
         {
           id: createMessageId(),
+          timestamp: sentTimestamp,
           source: "user",
           message: content,
         },
@@ -540,24 +653,45 @@ export default function Home() {
 
   const renderToolLogPanel = () => (
     <div className="bg-card flex min-h-0 h-full flex-col overflow-hidden rounded-xl border shadow-sm">
-      <button
-        type="button"
-        onClick={() => setIsToolPanelOpen((open) => !open)}
-        className="hover:bg-muted/40 flex items-center justify-between border-b px-4 py-3 text-left transition-colors"
-      >
-        <div>
-          <h2 className="text-sm font-medium">Tool Call Log</h2>
-          <p className="text-muted-foreground mt-0.5 text-xs">
-            {toolLogEntries.length} entries
-          </p>
-        </div>
-        <ChevronDown
-          className={cn(
-            "h-4 w-4 transition-transform",
-            isToolPanelOpen ? "rotate-180" : "rotate-0"
+      <div className="flex items-center gap-2 border-b px-4 py-3">
+        <button
+          type="button"
+          onClick={() => setIsToolPanelOpen((open) => !open)}
+          className="hover:text-foreground flex min-w-0 flex-1 items-center justify-between text-left transition-colors"
+        >
+          <div>
+            <h2 className="text-sm font-medium">Tool Call Log</h2>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {toolLogEntries.length} entries
+            </p>
+          </div>
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 transition-transform",
+              isToolPanelOpen ? "rotate-180" : "rotate-0"
+            )}
+          />
+        </button>
+
+        <button
+          type="button"
+          onClick={handleCopyToolLog}
+          disabled={toolLogEntries.length === 0}
+          className={copyButtonClassName}
+          title={
+            toolLogEntries.length > 0
+              ? "Copy tool call log"
+              : "No tool log entries to copy"
+          }
+        >
+          {copiedToolLog ? (
+            <Check className="h-3.5 w-3.5 text-emerald-400" />
+          ) : (
+            <Copy className="h-3.5 w-3.5 text-zinc-400" />
           )}
-        />
-      </button>
+          <span>{copiedToolLog ? "Copied" : "Copy"}</span>
+        </button>
+      </div>
 
       {isToolPanelOpen && (
         <div
@@ -588,8 +722,26 @@ export default function Home() {
 
   const renderErrorPanel = () => (
     <div className="bg-card flex min-h-0 h-full flex-col overflow-hidden rounded-xl border shadow-sm">
-      <div className="border-b px-4 py-3">
+      <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
         <h2 className="text-sm font-medium">Error Log</h2>
+        <button
+          type="button"
+          onClick={handleCopyErrorLog}
+          disabled={errorLogEntries.length === 0}
+          className={copyButtonClassName}
+          title={
+            errorLogEntries.length > 0
+              ? "Copy error log"
+              : "No errors to copy"
+          }
+        >
+          {copiedErrorLog ? (
+            <Check className="h-3.5 w-3.5 text-emerald-400" />
+          ) : (
+            <Copy className="h-3.5 w-3.5 text-zinc-400" />
+          )}
+          <span>{copiedErrorLog ? "Copied" : "Copy"}</span>
+        </button>
       </div>
 
       <div
@@ -633,10 +785,8 @@ export default function Home() {
               onClick={handleCopyConversationId}
               disabled={!conversationId}
               className={cn(
-                "inline-flex items-center gap-1 rounded-md border border-zinc-800 px-2 py-1 font-mono text-xs transition-colors",
-                conversationId
-                  ? "hover:bg-zinc-900"
-                  : "cursor-not-allowed opacity-60"
+                copyButtonClassName,
+                conversationId ? "" : "cursor-not-allowed opacity-60"
               )}
               title={
                 conversationId
@@ -675,8 +825,31 @@ export default function Home() {
           <section className="flex min-h-0 w-full flex-col md:w-[70%]">
 
           <div className="bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border shadow-sm">
-            <div className="border-b px-4 py-3">
-              <h2 className="text-sm font-medium">Live Transcript</h2>
+            <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+              <div>
+                <h2 className="text-sm font-medium">Live Transcript</h2>
+                <p className="text-muted-foreground mt-0.5 text-xs">
+                  {messages.length} messages
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCopyTranscript}
+                disabled={messages.length === 0}
+                className={copyButtonClassName}
+                title={
+                  messages.length > 0
+                    ? "Copy full transcript"
+                    : "No transcript messages to copy"
+                }
+              >
+                {copiedTranscript ? (
+                  <Check className="h-3.5 w-3.5 text-emerald-400" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5 text-zinc-400" />
+                )}
+                <span>{copiedTranscript ? "Copied" : "Copy"}</span>
+              </button>
             </div>
 
             <div
@@ -695,8 +868,49 @@ export default function Home() {
                   >
                     <MessageContent
                       variant={entry.source === "user" ? "contained" : "flat"}
-                      className={entry.source === "ai" ? "max-w-[90%]" : ""}
+                      className={cn(
+                        "relative pr-9",
+                        entry.source === "ai" ? "max-w-[90%]" : ""
+                      )}
                     >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void handleCopyMessage(entry)
+                        }}
+                        className={cn(
+                          "absolute top-2 right-2 inline-flex h-6 w-6 items-center justify-center rounded-md border border-zinc-800 bg-zinc-950/90 text-zinc-100 opacity-0 transition-opacity",
+                          "group-hover:opacity-100 focus-visible:opacity-100"
+                        )}
+                        title={
+                          copiedMessageId === entry.id
+                            ? "Copied"
+                            : "Copy message"
+                        }
+                        aria-label={
+                          copiedMessageId === entry.id
+                            ? "Message copied"
+                            : "Copy message"
+                        }
+                      >
+                        {copiedMessageId === entry.id ? (
+                          <Check className="h-3.5 w-3.5 text-emerald-400" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5 text-zinc-300" />
+                        )}
+                      </button>
+
+                      <p
+                        className={cn(
+                          "mb-1 font-mono text-[11px]",
+                          entry.source === "user"
+                            ? "text-primary-foreground/70"
+                            : "text-muted-foreground"
+                        )}
+                      >
+                        [{entry.timestamp}]
+                      </p>
+
                       {entry.source === "ai" ? (
                         <Response>{entry.message}</Response>
                       ) : (
