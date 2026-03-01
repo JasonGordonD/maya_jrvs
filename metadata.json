@@ -1,7 +1,0 @@
-{
-  "name": "Maya JRVS - Personality Architecture",
-  "description": "A high-fidelity, real-time voice-first AI executive orchestrator based on the Maya JRVS personality architecture.",
-  "requestFramePermissions": [
-    "microphone"
-  ]
-}

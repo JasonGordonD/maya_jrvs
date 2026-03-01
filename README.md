@@ -1,152 +1,36 @@
-# Maya JRVS v3.0
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-Browser-based executive AI assistant with a warm, frosted-glass interface and an edge-routed multi-provider LLM backend.
+## Getting Started
 
-## What is in this repo
-
-- **Frontend**: React 19 + Vite 6 (single runtime tree at repo root)
-- **LLM client bridge**: `services/gemini.ts` (frontend -> Supabase Edge Function)
-- **Edge function**: `supabase/functions/mjrvs_llm/index.ts` (provider router)
-- **Voice**: `useConversation` from `@elevenlabs/react` (connects to live ElevenLabs Conversational AI agent)
-
-## Architecture
-
-```text
-React UI (localhost:3001)
-    ↓
-services/gemini.ts
-    ↓
-Supabase Edge Function: mjrvs_llm
-    ↓
-Provider routing by model prefix
-    ├─ gemini-*      -> Google
-    ├─ claude-*      -> Anthropic
-    ├─ grok-*        -> xAI
-    └─ mistral-*     -> Mistral
-```
-
-### LLM routing (implemented)
-
-The edge function expects:
-
-```json
-{
-  "action": "chat",
-  "model": "gemini-3-flash-preview",
-  "system_prompt": "...",
-  "messages": [{ "role": "user", "content": "..." }],
-  "temperature": 0.7
-}
-```
-
-Unified response:
-
-```json
-{
-  "content": "...",
-  "model": "gemini-3-flash-preview",
-  "provider": "google",
-  "tokens": 847
-}
-```
-
-## Security posture
-
-- Browser no longer calls LLM providers directly.
-- Browser no longer sends provider API keys.
-- Provider keys are read in edge runtime via `Deno.env.get(...)`.
-- Frontend defaults to `https://svqbfxdhpsmioaosuhkb.supabase.co` if `VITE_SUPABASE_URL` is not set. A publishable key (`VITE_SUPABASE_KEY` or `VITE_SUPABASE_ANON_KEY`) is optional when target Edge Functions run with JWT verification disabled.
-
-## Supported models
-
-- `gemini-3-flash-preview`
-- `gemini-2.5-flash`
-- `gemini-3-pro-preview`
-- `claude-opus-4-6`
-- `claude-sonnet-4-5-20250929`
-- `claude-haiku-4-5-20251001`
-- `grok-4-1-fast`
-- `mistral-large-2512`
-- `mistral-medium-2508`
-- `magistral-medium-2509`
-
-## UI design system
-
-Current frontend uses a warm copper palette and frosted surfaces:
-
-- Tokens in `index.css`:
-  - `--bg-void`, `--bg-surface`, `--bg-elevated`, `--bg-panel`
-  - `--accent-warm`, `--accent-warm-dim`
-  - text/border tokens
-- Typography:
-  - **DM Sans** (UI + conversation)
-  - **IBM Plex Mono** (system labels, metadata, status)
-- Includes:
-  - film grain overlay
-  - subtle top-left ambient radial glow
-  - telemetry bar
-  - model selector with provider dot + latency
-  - collapsible context sidebar
-  - token metadata lines on assistant responses
-
-## Local development
-
-### 1) Install
-
-```bash
-npm install
-```
-
-### 2) Frontend env (`.env.local`)
-
-```env
-VITE_SUPABASE_URL=https://<project-ref>.supabase.co
-VITE_SUPABASE_KEY=<supabase-anon-key>
-```
-
-Compatibility: `VITE_SUPABASE_ANON_KEY` is also accepted as the key variable.
-If your Edge Functions are deployed with `--no-verify-jwt`, the key can be omitted.
-
-Optional:
-
-```env
-VITE_ELEVENLABS_AGENT_ID=agent_0401khmtcyfef6hbpcvchjv5jj02
-```
-
-If `VITE_ELEVENLABS_AGENT_ID` is not set, the app defaults to the production JRVS agent ID.
-
-### 3) Edge secrets (Supabase project)
-
-Set in Supabase Edge Function secrets:
-
-- `GEMINI_API_KEY`
-- `ANTHROPIC_API_KEY`
-- `XAI_API_KEY`
-- `MISTRAL_API_KEY`
-- `ELEVENLABS_API_KEY` (required for `mjrvs_tts` neural voice proxy)
-
-### 4) Run
+First, run the development server:
 
 ```bash
 npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
 ```
 
-Dev server: `http://localhost:3001`
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-## Scripts
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
-- `npm run dev`
-- `npm run build`
-- `npm run preview`
-- `npx tsc --noEmit`
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-## Validation checklist
+## Learn More
 
-```bash
-npx tsc --noEmit
-npm run build
-```
+To learn more about Next.js, take a look at the following resources:
 
-## License
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
 
-Proprietary - PRMPT / Maya JRVS Internal
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+
+## Deploy on Vercel
+
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
