@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/conversation-bar"
 import { Message, MessageContent } from "@/components/ui/message"
 import { MicSelector } from "@/components/ui/mic-selector"
+import { MjrvsStructuredContent } from "@/components/ui/mjrvs_structured_content"
 import { Response } from "@/components/ui/response"
 import { cn } from "@/lib/utils"
 
@@ -52,6 +53,7 @@ type ToolLogEntry = {
   id: string
   timestamp: string
   toolName: string
+  action?: string
   parameters: string
   resultSummary: string
 }
@@ -1005,10 +1007,13 @@ export default function Home() {
   const handleCopyToolLog = useCallback(async () => {
     if (toolLogEntries.length === 0) return
     const payload = toolLogEntries
-      .map(
-        (entry) =>
-          `[${entry.timestamp}] ${entry.toolName} -> ${entry.parameters} -> ${entry.resultSummary}`
-      )
+      .map((entry) => {
+        const parts = [`[${entry.timestamp}] ${entry.toolName}`]
+        if (entry.action) parts.push(`action: ${entry.action}`)
+        parts.push(entry.parameters)
+        parts.push(entry.resultSummary)
+        return parts.join(" -> ")
+      })
       .join("\n")
     const copied = await copyToClipboard(payload)
     if (copied) {
@@ -1370,7 +1375,8 @@ export default function Home() {
       appendToolLogEntry({
         id: createMessageId(),
         timestamp: createTimestamp(),
-        toolName: rawAction ? `${rawToolName}.${rawAction}` : rawToolName,
+        toolName: rawToolName,
+        action: rawAction || undefined,
         parameters: paramsText,
         resultSummary,
       })
@@ -1600,10 +1606,28 @@ export default function Home() {
                 key={entry.id}
                 className="rounded-md border bg-muted/20 px-2 py-2 text-xs"
               >
-                <p className="font-mono leading-5 break-words">
-                  [{entry.timestamp}] {entry.toolName} {"->"} {entry.parameters}{" "}
-                  {"->"} {entry.resultSummary}
+                <p className="text-muted-foreground font-mono text-[11px]">
+                  [{entry.timestamp}]
                 </p>
+                <p className="mt-0.5 font-mono font-bold leading-5 break-words">
+                  {entry.toolName}
+                </p>
+                {entry.action && (
+                  <p className="mt-0.5 font-mono leading-5 break-words">
+                    {entry.action}
+                  </p>
+                )}
+                {entry.parameters && entry.parameters !== "params: n/a" && (
+                  <p className="text-muted-foreground mt-0.5 font-mono leading-5 break-words">
+                    {entry.parameters}
+                  </p>
+                )}
+                {entry.resultSummary &&
+                  entry.resultSummary !== "result unavailable" && (
+                    <p className="mt-0.5 font-mono leading-5 break-words">
+                      {entry.resultSummary}
+                    </p>
+                  )}
               </div>
             ))
           )}
@@ -2110,14 +2134,10 @@ export default function Home() {
                           </p>
 
                           {entry.source === "structured" ? (
-                            <>
-                              {entry.label && (
-                                <p className="mb-1 text-xs font-semibold tracking-wide text-sky-300">
-                                  {entry.label}
-                                </p>
-                              )}
-                              <Response>{entry.message}</Response>
-                            </>
+                            <MjrvsStructuredContent
+                              content={entry.message}
+                              label={entry.label}
+                            />
                           ) : entry.source === "ai" ? (
                             <Response>{entry.message}</Response>
                           ) : (
