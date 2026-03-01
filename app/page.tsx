@@ -10,6 +10,7 @@ import {
   Download,
   RotateCcw,
   Search,
+  X,
 } from "lucide-react"
 
 import {
@@ -192,10 +193,14 @@ const countTranscriptMatches = (
   const normalizedQuery = query.trim()
   if (!normalizedQuery) return 0
 
-  return transcriptEntries.reduce(
-    (total, entry) => total + countMatchesInText(formatTranscriptLine(entry), normalizedQuery),
-    0
-  )
+  return transcriptEntries.reduce((total, entry) => {
+    let count = countMatchesInText(`[${entry.timestamp}]`, normalizedQuery)
+    if (entry.source === "structured" && entry.label) {
+      count += countMatchesInText(entry.label, normalizedQuery)
+    }
+    count += countMatchesInText(entry.message, normalizedQuery)
+    return total + count
+  }, 0)
 }
 
 const copyButtonClassName =
@@ -1457,7 +1462,7 @@ export default function Home() {
                         : "Search transcript"
                     }
                   >
-                    <Search className="h-3.5 w-3.5 text-zinc-400" />
+                    <Search className={cn("h-3.5 w-3.5", isTranscriptSearchOpen ? "text-emerald-400" : "text-zinc-400")} />
                     <span className="hidden sm:inline">Search</span>
                   </button>
                   <button
@@ -1495,43 +1500,47 @@ export default function Home() {
                 </div>
               </div>
 
-              {isTranscriptSearchOpen && (
-                <div
-                  className="mt-3 flex flex-wrap items-center gap-2"
-                  data-transcript-search="true"
-                >
-                  <div className="relative min-w-[220px] flex-1">
-                    <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
-                    <input
-                      ref={transcriptSearchInputRef}
-                      type="text"
-                      value={transcriptSearchQuery}
-                      onChange={(event) => {
-                        const nextQuery = event.target.value
-                        setTranscriptSearchQuery(nextQuery)
-                        setActiveTranscriptMatchIndex(
-                          countTranscriptMatches(messages, nextQuery) > 0 ? 0 : -1
-                        )
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault()
-                          navigateTranscriptMatches(event.shiftKey ? -1 : 1)
-                        }
-                      }}
-                      placeholder="Search transcript..."
-                      className="bg-background h-8 w-full rounded-md border border-zinc-700 pr-2 pl-8 text-xs outline-none transition-colors focus:border-zinc-500"
-                    />
-                  </div>
+              </div>
 
-                  <span className="text-muted-foreground min-w-[120px] text-xs">
-                    {transcriptSearchQuery.trim().length === 0
-                      ? "Type to search"
-                      : transcriptMatchCount === 0
-                        ? "No matches"
-                        : `${activeTranscriptMatchDisplayIndex} of ${transcriptMatchCount} matches`}
-                  </span>
+            {isTranscriptSearchOpen && (
+              <div
+                className="flex items-center gap-2 border-b px-4 py-2"
+                data-transcript-search="true"
+              >
+                <Search className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+                <input
+                  ref={transcriptSearchInputRef}
+                  type="text"
+                  value={transcriptSearchQuery}
+                  onChange={(event) => {
+                    const nextQuery = event.target.value
+                    setTranscriptSearchQuery(nextQuery)
+                    setActiveTranscriptMatchIndex(
+                      countTranscriptMatches(messages, nextQuery) > 0 ? 0 : -1
+                    )
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault()
+                      closeTranscriptSearch()
+                    } else if (event.key === "Enter") {
+                      event.preventDefault()
+                      navigateTranscriptMatches(event.shiftKey ? -1 : 1)
+                    }
+                  }}
+                  placeholder="Search transcript..."
+                  className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-500"
+                />
 
+                <span className="text-muted-foreground shrink-0 font-mono text-xs">
+                  {transcriptSearchQuery.trim().length === 0
+                    ? ""
+                    : transcriptMatchCount === 0
+                      ? "No matches"
+                      : `${activeTranscriptMatchDisplayIndex} of ${transcriptMatchCount} matches`}
+                </span>
+
+                <div className="flex items-center gap-0.5">
                   <button
                     type="button"
                     onClick={() => navigateTranscriptMatches(-1)}
@@ -1539,10 +1548,10 @@ export default function Home() {
                       transcriptSearchQuery.trim().length === 0 ||
                       transcriptMatchCount === 0
                     }
-                    className={copyButtonClassName}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-40"
                     title="Previous match (Shift+Enter)"
                   >
-                    <ArrowUp className="h-3.5 w-3.5 text-zinc-300" />
+                    <ArrowUp className="h-3.5 w-3.5" />
                   </button>
                   <button
                     type="button"
@@ -1551,14 +1560,22 @@ export default function Home() {
                       transcriptSearchQuery.trim().length === 0 ||
                       transcriptMatchCount === 0
                     }
-                    className={copyButtonClassName}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-40"
                     title="Next match (Enter)"
                   >
-                    <ArrowDown className="h-3.5 w-3.5 text-zinc-300" />
+                    <ArrowDown className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closeTranscriptSearch}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+                    title="Close search (Escape)"
+                  >
+                    <X className="h-3.5 w-3.5" />
                   </button>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
             <div
               ref={transcriptRef}
