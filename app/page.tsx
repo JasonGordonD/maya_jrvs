@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Check, ChevronDown, Copy } from "lucide-react"
 
-import { ConversationBar } from "@/components/ui/conversation-bar"
+import {
+  ConversationBar,
+  type AudioInputMode,
+} from "@/components/ui/conversation-bar"
 import { Message, MessageContent } from "@/components/ui/message"
 import { MicSelector } from "@/components/ui/mic-selector"
 import { Response } from "@/components/ui/response"
@@ -350,9 +353,20 @@ const statusDotClassMap: Record<ConnectionStatus, string> = {
   disconnecting: "bg-amber-400 animate-pulse",
 }
 
+const audioModeLabelMap: Record<AudioInputMode, string> = {
+  mic: "Mic Only",
+  device: "Device Audio",
+  mixed: "Mic + Device Audio",
+}
+
 export default function Home() {
   const [messages, setMessages] = useState<TranscriptMessage[]>([])
   const [selectedMicId, setSelectedMicId] = useState<string>("")
+  const [audioInputMode, setAudioInputMode] = useState<AudioInputMode>("mic")
+  const [systemAudioCaptureSupported, setSystemAudioCaptureSupported] =
+    useState(false)
+  const [systemAudioCaptureLive, setSystemAudioCaptureLive] = useState(false)
+  const [audioModeRestartSignal, setAudioModeRestartSignal] = useState(0)
   const [activeNode, setActiveNode] = useState<string>("—")
   const [conversationId, setConversationId] = useState<string>("")
   const [copiedConversationId, setCopiedConversationId] = useState(false)
@@ -407,6 +421,13 @@ export default function Home() {
     if (!errorLogRef.current) return
     errorLogRef.current.scrollTop = errorLogRef.current.scrollHeight
   }, [errorLogEntries])
+
+  useEffect(() => {
+    setSystemAudioCaptureSupported(
+      typeof navigator !== "undefined" &&
+        !!navigator.mediaDevices?.getDisplayMedia
+    )
+  }, [])
 
   useEffect(() => {
     if (!copiedConversationId) return
@@ -519,6 +540,30 @@ export default function Home() {
       }
     },
     [copyToClipboard]
+  )
+
+  const handleAudioInputModeChange = useCallback(
+    (nextMode: AudioInputMode) => {
+      if (nextMode === audioInputMode) return
+      if (nextMode !== "mic" && !systemAudioCaptureSupported) return
+
+      if (
+        connectionStatus === "connected" ||
+        connectionStatus === "connecting"
+      ) {
+        const shouldRestart = window.confirm(
+          "Changing audio mode will restart the session"
+        )
+        if (!shouldRestart) return
+        setAudioModeRestartSignal((prev) => prev + 1)
+      }
+
+      setAudioInputMode(nextMode)
+      if (nextMode === "mic") {
+        setSystemAudioCaptureLive(false)
+      }
+    },
+    [audioInputMode, connectionStatus, systemAudioCaptureSupported]
   )
 
   const appendToolLogEntry = useCallback((entry: ToolLogEntry | null) => {
@@ -928,6 +973,9 @@ export default function Home() {
               agentId={process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID}
               getSignedUrl={getSignedUrl}
               inputDeviceId={selectedMicId || undefined}
+              audioInputMode={audioInputMode}
+              forceDisconnectSignal={audioModeRestartSignal}
+              onSystemAudioCaptureChange={setSystemAudioCaptureLive}
               onConnect={() => {
                 console.log("[JRVS] onConnect")
               }}
@@ -943,7 +991,47 @@ export default function Home() {
               onError={handleConversationError}
             />
 
-            <div className="flex justify-end">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="bg-muted inline-flex rounded-md p-1">
+                  {(
+                    ["mic", "device", "mixed"] as AudioInputMode[]
+                  ).map((mode) => {
+                    const unsupported =
+                      mode !== "mic" && !systemAudioCaptureSupported
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => handleAudioInputModeChange(mode)}
+                        disabled={unsupported}
+                        title={
+                          unsupported
+                            ? "System audio capture not supported in this browser."
+                            : audioModeLabelMap[mode]
+                        }
+                        className={cn(
+                          "rounded px-3 py-1.5 text-sm transition-colors",
+                          audioInputMode === mode
+                            ? "bg-background text-foreground shadow-sm"
+                            : "text-muted-foreground",
+                          unsupported && "cursor-not-allowed opacity-50"
+                        )}
+                      >
+                        {audioModeLabelMap[mode]}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {systemAudioCaptureLive &&
+                  (audioInputMode === "device" || audioInputMode === "mixed") && (
+                    <span className="rounded-full border border-emerald-700/50 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-300">
+                      System audio capture live
+                    </span>
+                  )}
+              </div>
+
               <MicSelector
                 value={selectedMicId}
                 onValueChange={(deviceId) => setSelectedMicId(deviceId)}

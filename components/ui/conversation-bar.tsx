@@ -16,7 +16,6 @@ import {
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { LiveWaveform } from "@/components/ui/live-waveform"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 
@@ -27,6 +26,8 @@ type PendingAttachment = {
 
 const ACCEPTED_FILE_TYPES =
   ".pdf,.txt,.md,.docx,.json,.csv,.png,.jpg,.jpeg"
+
+export type AudioInputMode = "mic" | "device" | "mixed"
 
 export interface ConversationBarProps {
   /**
@@ -101,6 +102,21 @@ export interface ConversationBarProps {
    * Preferred microphone input device id
    */
   inputDeviceId?: string
+
+  /**
+   * Audio capture mode for session input
+   */
+  audioInputMode?: AudioInputMode
+
+  /**
+   * Callback when system audio capture is currently active
+   */
+  onSystemAudioCaptureChange?: (isActive: boolean) => void
+
+  /**
+   * Changing this signal forces an active session disconnect
+   */
+  forceDisconnectSignal?: number
 }
 
 export const ConversationBar = React.forwardRef<
@@ -123,6 +139,9 @@ export const ConversationBar = React.forwardRef<
       onSendMessage,
       onConversationId,
       inputDeviceId,
+      audioInputMode = "mic",
+      onSystemAudioCaptureChange,
+      forceDisconnectSignal,
     },
     ref
   ) => {
@@ -137,6 +156,133 @@ export const ConversationBar = React.forwardRef<
     >([])
     const mediaStreamRef = React.useRef<MediaStream | null>(null)
     const fileInputRef = React.useRef<HTMLInputElement | null>(null)
+    const displayStreamRef = React.useRef<MediaStream | null>(null)
+    const mixedMicStreamRef = React.useRef<MediaStream | null>(null)
+    const mixedDisplayStreamRef = React.useRef<MediaStream | null>(null)
+    const audioContextRef = React.useRef<AudioContext | null>(null)
+    const previousDisconnectSignalRef = React.useRef<number | undefined>(
+      forceDisconnectSignal
+    )
+
+    const stopStream = React.useCallback((stream: MediaStream | null) => {
+      if (!stream) return
+      stream.getTracks().forEach((track) => track.stop())
+    }, [])
+
+    const cleanupPreparedAudioStreams = React.useCallback(() => {
+      stopStream(mediaStreamRef.current)
+      stopStream(displayStreamRef.current)
+      stopStream(mixedMicStreamRef.current)
+      stopStream(mixedDisplayStreamRef.current)
+
+      mediaStreamRef.current = null
+      displayStreamRef.current = null
+      mixedMicStreamRef.current = null
+      mixedDisplayStreamRef.current = null
+
+      if (audioContextRef.current) {
+        void audioContextRef.current.close()
+        audioContextRef.current = null
+      }
+
+      onSystemAudioCaptureChange?.(false)
+    }, [onSystemAudioCaptureChange, stopStream])
+
+    const requestDisplayAudioStream = React.useCallback(async () => {
+      if (!navigator.mediaDevices?.getDisplayMedia) {
+        throw new Error("System audio capture not supported in this browser.")
+      }
+
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        audio: true,
+        video: false,
+      })
+
+      stream.getVideoTracks().forEach((track) => track.stop())
+      if (stream.getAudioTracks().length === 0) {
+        stopStream(stream)
+        throw new Error(
+          "No system audio track was shared. Select a tab/window with audio."
+        )
+      }
+
+      const [audioTrack] = stream.getAudioTracks()
+      if (audioTrack) {
+        audioTrack.addEventListener(
+          "ended",
+          () => {
+            onSystemAudioCaptureChange?.(false)
+          },
+          { once: true }
+        )
+      }
+
+      return stream
+    }, [onSystemAudioCaptureChange, stopStream])
+
+    const getMicConstraints = React.useCallback((): MediaTrackConstraints | true => {
+      return inputDeviceId ? { deviceId: { exact: inputDeviceId } } : true
+    }, [inputDeviceId])
+
+    const getInputStreamForMode = React.useCallback(async () => {
+      if (audioInputMode === "mic") {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: getMicConstraints(),
+        })
+        mediaStreamRef.current = stream
+        onSystemAudioCaptureChange?.(false)
+        return stream
+      }
+
+      if (audioInputMode === "device") {
+        const displayStream = await requestDisplayAudioStream()
+        displayStreamRef.current = displayStream
+        mediaStreamRef.current = displayStream
+        onSystemAudioCaptureChange?.(true)
+        return displayStream
+      }
+
+      const micStream = await navigator.mediaDevices.getUserMedia({
+        audio: getMicConstraints(),
+      })
+      const systemStream = await requestDisplayAudioStream()
+
+      const AudioContextCtor =
+        window.AudioContext ||
+        // @ts-expect-error webkitAudioContext is vendor-prefixed.
+        window.webkitAudioContext
+
+      if (!AudioContextCtor) {
+        stopStream(micStream)
+        stopStream(systemStream)
+        throw new Error("Web Audio API is not supported in this browser.")
+      }
+
+      const audioContext = new AudioContextCtor()
+      audioContextRef.current = audioContext
+
+      const destination = audioContext.createMediaStreamDestination()
+      const micSource = audioContext.createMediaStreamSource(micStream)
+      const systemSource = audioContext.createMediaStreamSource(systemStream)
+
+      micSource.connect(destination)
+      systemSource.connect(destination)
+      void audioContext.resume()
+
+      const mixedStream = destination.stream
+      mixedMicStreamRef.current = micStream
+      mixedDisplayStreamRef.current = systemStream
+      mediaStreamRef.current = mixedStream
+      onSystemAudioCaptureChange?.(true)
+
+      return mixedStream
+    }, [
+      audioInputMode,
+      getMicConstraints,
+      onSystemAudioCaptureChange,
+      requestDisplayAudioStream,
+      stopStream,
+    ])
 
     const conversation = useConversation({
       onConnect: () => {
@@ -146,6 +292,7 @@ export const ConversationBar = React.forwardRef<
         setAgentState("disconnected")
         onDisconnect?.()
         setKeyboardOpen(false)
+        cleanupPreparedAudioStreams()
       },
       onMessage: (message) => {
         onMessage?.(message)
@@ -167,33 +314,77 @@ export const ConversationBar = React.forwardRef<
       },
     })
 
-    const getMicStream = React.useCallback(async () => {
-      if (mediaStreamRef.current) return mediaStreamRef.current
+    const startSessionWithInputStream = React.useCallback(
+      async (
+        inputStream: MediaStream,
+        sessionConfig:
+          | {
+              signedUrl: string
+              connectionType: "websocket"
+              onStatusChange: (status: {
+                status:
+                  | "disconnected"
+                  | "connecting"
+                  | "connected"
+                  | "disconnecting"
+              }) => void
+            }
+          | {
+              agentId: string
+              connectionType: "webrtc"
+              onStatusChange: (status: {
+                status:
+                  | "disconnected"
+                  | "connecting"
+                  | "connected"
+                  | "disconnecting"
+              }) => void
+            }
+      ) => {
+        // SDK currently supports inputDeviceId. For custom system/mixed streams,
+        // we inject the prepared stream into session initialization.
+        const originalGetUserMedia =
+          navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
 
-      const audioConstraints: MediaTrackConstraints | true = inputDeviceId
-        ? { deviceId: { exact: inputDeviceId } }
-        : true
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: audioConstraints,
-      })
-      mediaStreamRef.current = stream
+        const injectedGetUserMedia: typeof navigator.mediaDevices.getUserMedia =
+          async () => inputStream
 
-      return stream
-    }, [inputDeviceId])
+        ;(
+          navigator.mediaDevices as MediaDevices & {
+            getUserMedia: typeof navigator.mediaDevices.getUserMedia
+          }
+        ).getUserMedia = injectedGetUserMedia
+
+        try {
+          return await conversation.startSession({
+            ...sessionConfig,
+            ...(audioInputMode === "mic" && inputDeviceId
+              ? { inputDeviceId }
+              : {}),
+          })
+        } finally {
+          ;(
+            navigator.mediaDevices as MediaDevices & {
+              getUserMedia: typeof navigator.mediaDevices.getUserMedia
+            }
+          ).getUserMedia = originalGetUserMedia
+        }
+      },
+      [audioInputMode, conversation, inputDeviceId]
+    )
 
     const startConversation = React.useCallback(async () => {
       try {
         setAgentState("connecting")
 
-        await getMicStream()
+        const inputStream = await getInputStreamForMode()
 
         if (getSignedUrl) {
           const signedUrl = await getSignedUrl()
-          const conversationId = await conversation.startSession({
+          const conversationId = await startSessionWithInputStream(inputStream, {
             signedUrl,
             connectionType: "websocket",
             onStatusChange: (status) => setAgentState(status.status),
-            ...(inputDeviceId ? { inputDeviceId } : {}),
           })
           onConversationId?.(conversationId)
           return
@@ -205,37 +396,33 @@ export const ConversationBar = React.forwardRef<
           )
         }
 
-        const conversationId = await conversation.startSession({
+        const conversationId = await startSessionWithInputStream(inputStream, {
           agentId,
           connectionType: "webrtc",
           onStatusChange: (status) => setAgentState(status.status),
-          ...(inputDeviceId ? { inputDeviceId } : {}),
         })
         onConversationId?.(conversationId)
       } catch (error) {
         console.error("Error starting conversation:", error)
         setAgentState("disconnected")
+        cleanupPreparedAudioStreams()
         onError?.(error as Error)
       }
     }, [
-      conversation,
-      getMicStream,
+      getInputStreamForMode,
       getSignedUrl,
       agentId,
       onError,
       onConversationId,
-      inputDeviceId,
+      startSessionWithInputStream,
+      cleanupPreparedAudioStreams,
     ])
 
     const handleEndSession = React.useCallback(() => {
       conversation.endSession()
       setAgentState("disconnected")
-
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((t) => t.stop())
-        mediaStreamRef.current = null
-      }
-    }, [conversation])
+      cleanupPreparedAudioStreams()
+    }, [conversation, cleanupPreparedAudioStreams])
 
     const toggleMute = React.useCallback(() => {
       setIsMuted((prev) => !prev)
@@ -310,18 +497,13 @@ export const ConversationBar = React.forwardRef<
 
     React.useEffect(() => {
       return () => {
-        if (mediaStreamRef.current) {
-          mediaStreamRef.current.getTracks().forEach((t) => t.stop())
-        }
+        cleanupPreparedAudioStreams()
       }
-    }, [])
+    }, [cleanupPreparedAudioStreams])
 
     React.useEffect(() => {
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((t) => t.stop())
-        mediaStreamRef.current = null
-      }
-    }, [inputDeviceId])
+      cleanupPreparedAudioStreams()
+    }, [inputDeviceId, audioInputMode, cleanupPreparedAudioStreams])
 
     React.useEffect(() => {
       if (!agentState) return
@@ -331,6 +513,17 @@ export const ConversationBar = React.forwardRef<
     React.useEffect(() => {
       onSpeakingChange?.(conversation.isSpeaking)
     }, [conversation.isSpeaking, onSpeakingChange])
+
+    React.useEffect(() => {
+      if (forceDisconnectSignal === previousDisconnectSignalRef.current) {
+        return
+      }
+
+      previousDisconnectSignalRef.current = forceDisconnectSignal
+      if (agentState === "connected" || agentState === "connecting") {
+        handleEndSession()
+      }
+    }, [agentState, forceDisconnectSignal, handleEndSession])
 
     return (
       <div
