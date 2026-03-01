@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Check, ChevronDown, Copy } from "lucide-react"
+import { Check, ChevronDown, Copy, RotateCcw } from "lucide-react"
 
 import {
   ConversationBar,
@@ -81,6 +81,19 @@ const formatTranscriptLine = (entry: TranscriptMessage): string =>
 
 const copyButtonClassName =
   "inline-flex items-center gap-1 rounded-md border border-zinc-800 px-2 py-1 font-mono text-xs transition-colors hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+
+const formatSessionDuration = (totalSeconds: number): string => {
+  const safe = Math.max(0, Math.floor(totalSeconds))
+  const hours = Math.floor(safe / 3600)
+  const minutes = Math.floor((safe % 3600) / 60)
+  const seconds = safe % 60
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+  }
+
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+}
 
 const normalizeNodeLabel = (value: string): string =>
   value
@@ -367,6 +380,9 @@ export default function Home() {
     useState(false)
   const [systemAudioCaptureLive, setSystemAudioCaptureLive] = useState(false)
   const [audioModeRestartSignal, setAudioModeRestartSignal] = useState(0)
+  const [newSessionSignal, setNewSessionSignal] = useState(0)
+  const [sessionDurationSeconds, setSessionDurationSeconds] = useState(0)
+  const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null)
   const [activeNode, setActiveNode] = useState<string>("—")
   const [conversationId, setConversationId] = useState<string>("")
   const [copiedConversationId, setCopiedConversationId] = useState(false)
@@ -428,6 +444,23 @@ export default function Home() {
         !!navigator.mediaDevices?.getDisplayMedia
     )
   }, [])
+
+  useEffect(() => {
+    if (connectionStatus !== "connected" || sessionStartedAt === null) return
+
+    const updateDuration = () => {
+      setSessionDurationSeconds(
+        Math.floor((Date.now() - sessionStartedAt) / 1000)
+      )
+    }
+
+    updateDuration()
+    const intervalId = window.setInterval(updateDuration, 1000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [connectionStatus, sessionStartedAt])
 
   useEffect(() => {
     if (!copiedConversationId) return
@@ -565,6 +598,39 @@ export default function Home() {
     },
     [audioInputMode, connectionStatus, systemAudioCaptureSupported]
   )
+
+  const handleConnectionStatusChange = useCallback(
+    (status: ConnectionStatus) => {
+      setConnectionStatus(status)
+
+      if (status === "connected") {
+        setSessionStartedAt(Date.now())
+        setSessionDurationSeconds(0)
+        return
+      }
+
+      if (status === "disconnected" || status === "disconnecting") {
+        setSessionStartedAt(null)
+      }
+    },
+    []
+  )
+
+  const handleNewSession = useCallback(() => {
+    setMessages([])
+    setToolLogEntries([])
+    setErrorLogEntries([])
+    setActiveNode("—")
+    setConversationId("")
+    setSystemAudioCaptureLive(false)
+    setSessionDurationSeconds(0)
+    setSessionStartedAt(null)
+    setCopiedTranscript(false)
+    setCopiedToolLog(false)
+    setCopiedErrorLog(false)
+    setCopiedMessageId(null)
+    setNewSessionSignal((prev) => prev + 1)
+  }, [])
 
   const appendToolLogEntry = useCallback((entry: ToolLogEntry | null) => {
     if (!entry) return
@@ -850,6 +916,18 @@ export default function Home() {
             </button>
 
             <div className="flex items-center justify-end gap-2">
+              <span className="font-mono text-xs text-zinc-300">
+                {formatSessionDuration(sessionDurationSeconds)}
+              </span>
+              <button
+                type="button"
+                onClick={handleNewSession}
+                className={copyButtonClassName}
+                title="Start a brand-new conversation session"
+              >
+                <RotateCcw className="h-3.5 w-3.5 text-zinc-300" />
+                <span className="hidden sm:inline">New Session</span>
+              </button>
               <span
                 className={cn(
                   "inline-block h-2.5 w-2.5 rounded-full",
@@ -975,6 +1053,7 @@ export default function Home() {
               inputDeviceId={selectedMicId || undefined}
               audioInputMode={audioInputMode}
               forceDisconnectSignal={audioModeRestartSignal}
+              newSessionSignal={newSessionSignal}
               onSystemAudioCaptureChange={setSystemAudioCaptureLive}
               onConnect={() => {
                 console.log("[JRVS] onConnect")
@@ -982,7 +1061,7 @@ export default function Home() {
               onDisconnect={() => {
                 console.log("[JRVS] onDisconnect")
               }}
-              onConnectionStatusChange={setConnectionStatus}
+              onConnectionStatusChange={handleConnectionStatusChange}
               onSpeakingChange={setIsAgentSpeaking}
               onConversationId={setConversationId}
               onMessage={handleConversationMessage}

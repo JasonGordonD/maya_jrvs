@@ -117,6 +117,11 @@ export interface ConversationBarProps {
    * Changing this signal forces an active session disconnect
    */
   forceDisconnectSignal?: number
+
+  /**
+   * Changing this signal starts a brand new session.
+   */
+  newSessionSignal?: number
 }
 
 export const ConversationBar = React.forwardRef<
@@ -142,6 +147,7 @@ export const ConversationBar = React.forwardRef<
       audioInputMode = "mic",
       onSystemAudioCaptureChange,
       forceDisconnectSignal,
+      newSessionSignal,
     },
     ref
   ) => {
@@ -162,6 +168,9 @@ export const ConversationBar = React.forwardRef<
     const audioContextRef = React.useRef<AudioContext | null>(null)
     const previousDisconnectSignalRef = React.useRef<number | undefined>(
       forceDisconnectSignal
+    )
+    const previousNewSessionSignalRef = React.useRef<number | undefined>(
+      newSessionSignal
     )
 
     const stopStream = React.useCallback((stream: MediaStream | null) => {
@@ -418,11 +427,20 @@ export const ConversationBar = React.forwardRef<
       cleanupPreparedAudioStreams,
     ])
 
-    const handleEndSession = React.useCallback(() => {
-      conversation.endSession()
-      setAgentState("disconnected")
-      cleanupPreparedAudioStreams()
+    const endConversation = React.useCallback(async () => {
+      try {
+        await conversation.endSession()
+      } catch (error) {
+        console.error("Error ending conversation:", error)
+      } finally {
+        setAgentState("disconnected")
+        cleanupPreparedAudioStreams()
+      }
     }, [conversation, cleanupPreparedAudioStreams])
+
+    const handleEndSession = React.useCallback(() => {
+      void endConversation()
+    }, [endConversation])
 
     const toggleMute = React.useCallback(() => {
       setIsMuted((prev) => !prev)
@@ -515,15 +533,61 @@ export const ConversationBar = React.forwardRef<
     }, [conversation.isSpeaking, onSpeakingChange])
 
     React.useEffect(() => {
+      const onKeyDown = (event: KeyboardEvent) => {
+        if (event.defaultPrevented) return
+        if (event.key.toLowerCase() !== "m") return
+        if (event.metaKey || event.ctrlKey || event.altKey) return
+
+        const active = document.activeElement as HTMLElement | null
+        if (active) {
+          const tag = active.tagName
+          if (
+            tag === "INPUT" ||
+            tag === "TEXTAREA" ||
+            tag === "SELECT" ||
+            active.isContentEditable
+          ) {
+            return
+          }
+        }
+
+        event.preventDefault()
+        setIsMuted((prev) => !prev)
+      }
+
+      window.addEventListener("keydown", onKeyDown)
+      return () => {
+        window.removeEventListener("keydown", onKeyDown)
+      }
+    }, [])
+
+    React.useEffect(() => {
       if (forceDisconnectSignal === previousDisconnectSignalRef.current) {
         return
       }
 
       previousDisconnectSignalRef.current = forceDisconnectSignal
       if (agentState === "connected" || agentState === "connecting") {
-        handleEndSession()
+        void endConversation()
       }
-    }, [agentState, forceDisconnectSignal, handleEndSession])
+    }, [agentState, forceDisconnectSignal, endConversation])
+
+    React.useEffect(() => {
+      if (newSessionSignal === previousNewSessionSignalRef.current) {
+        return
+      }
+
+      previousNewSessionSignalRef.current = newSessionSignal
+
+      const startFreshSession = async () => {
+        if (agentState === "connected" || agentState === "connecting") {
+          await endConversation()
+        }
+        await startConversation()
+      }
+
+      void startFreshSession()
+    }, [agentState, endConversation, newSessionSignal, startConversation])
 
     return (
       <div
