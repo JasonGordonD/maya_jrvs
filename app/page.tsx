@@ -1,7 +1,16 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Check, ChevronDown, Copy, RotateCcw } from "lucide-react"
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  ChevronDown,
+  Copy,
+  Download,
+  RotateCcw,
+  Search,
+} from "lucide-react"
 
 import {
   ConversationBar,
@@ -98,6 +107,96 @@ const getSpeakerLabel = (entry: TranscriptMessage): string => {
 
 const formatTranscriptLine = (entry: TranscriptMessage): string =>
   `[${entry.timestamp}] ${getSpeakerLabel(entry)}: ${entry.message}`
+
+const escapeRegExp = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
+const formatTranscriptExportDate = (date: Date): string =>
+  [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-")
+
+const formatTranscriptExportFilename = (date: Date): string => {
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  const year = String(date.getFullYear()).slice(-2)
+  const hours = String(date.getHours()).padStart(2, "0")
+  const minutes = String(date.getMinutes()).padStart(2, "0")
+  return `mjrvs_trans_${month}${day}${year}_${hours}${minutes}.md`
+}
+
+const formatTranscriptExportMarkdown = ({
+  generatedAt,
+  conversationId,
+  durationSeconds,
+  messages,
+}: {
+  generatedAt: Date
+  conversationId: string
+  durationSeconds: number
+  messages: TranscriptMessage[]
+}): string => {
+  const hasDuration = durationSeconds > 0 || messages.length > 0
+  const transcriptBody =
+    messages.length === 0
+      ? "_No transcript messages._"
+      : messages
+          .map((entry) => {
+            const content = entry.message.trim() || "_(empty message)_"
+            return `**[${entry.timestamp}] ${getSpeakerLabel(entry)}:**\n${content}`
+          })
+          .join("\n\n")
+
+  return `# JRVS Transcript
+**Date:** ${formatTranscriptExportDate(generatedAt)}
+**Session:** ${conversationId || "Not available"}
+**Duration:** ${hasDuration ? formatSessionDuration(durationSeconds) : "Not available"}
+
+---
+
+${transcriptBody}
+`
+}
+
+const transcriptMatchClassName =
+  "rounded-sm bg-amber-300/75 px-0.5 text-zinc-900 dark:bg-amber-300/85 dark:text-zinc-950"
+
+const activeTranscriptMatchClassName =
+  "rounded-sm bg-emerald-300/80 px-0.5 text-zinc-900 dark:bg-emerald-300/90 dark:text-zinc-950"
+
+const setTranscriptMatchActiveState = (
+  element: HTMLElement,
+  isActive: boolean
+) => {
+  element.className = isActive
+    ? activeTranscriptMatchClassName
+    : transcriptMatchClassName
+}
+
+const countMatchesInText = (text: string, query: string): number => {
+  if (!query) return 0
+  const matcher = new RegExp(escapeRegExp(query), "gi")
+  let count = 0
+  while (matcher.exec(text)) {
+    count += 1
+  }
+  return count
+}
+
+const countTranscriptMatches = (
+  transcriptEntries: TranscriptMessage[],
+  query: string
+): number => {
+  const normalizedQuery = query.trim()
+  if (!normalizedQuery) return 0
+
+  return transcriptEntries.reduce(
+    (total, entry) => total + countMatchesInText(formatTranscriptLine(entry), normalizedQuery),
+    0
+  )
+}
 
 const copyButtonClassName =
   "inline-flex items-center gap-1 rounded-md border border-zinc-800 px-2 py-1 font-mono text-xs transition-colors hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
@@ -411,6 +510,10 @@ export default function Home() {
   const [conversationId, setConversationId] = useState<string>("")
   const [copiedConversationId, setCopiedConversationId] = useState(false)
   const [copiedTranscript, setCopiedTranscript] = useState(false)
+  const [isTranscriptSearchOpen, setIsTranscriptSearchOpen] = useState(false)
+  const [transcriptSearchQuery, setTranscriptSearchQuery] = useState("")
+  const [activeTranscriptMatchIndex, setActiveTranscriptMatchIndex] =
+    useState(-1)
   const [copiedToolLog, setCopiedToolLog] = useState(false)
   const [copiedErrorLog, setCopiedErrorLog] = useState(false)
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
@@ -422,8 +525,23 @@ export default function Home() {
   const [isToolPanelOpen, setIsToolPanelOpen] = useState(true)
   const [mobilePanelTab, setMobilePanelTab] = useState<MobilePanelTab>("tools")
   const transcriptRef = useRef<HTMLDivElement>(null)
+  const transcriptSearchInputRef = useRef<HTMLInputElement>(null)
+  const transcriptMatchElementsRef = useRef<HTMLElement[]>([])
   const toolLogRef = useRef<HTMLDivElement>(null)
   const errorLogRef = useRef<HTMLDivElement>(null)
+
+  const transcriptMatchCount = useMemo(() => {
+    if (!isTranscriptSearchOpen) return 0
+    return countTranscriptMatches(messages, transcriptSearchQuery)
+  }, [isTranscriptSearchOpen, messages, transcriptSearchQuery])
+
+  const activeTranscriptMatchDisplayIndex = useMemo(() => {
+    if (transcriptMatchCount === 0) return 0
+    return Math.min(
+      Math.max(activeTranscriptMatchIndex + 1, 1),
+      transcriptMatchCount
+    )
+  }, [activeTranscriptMatchIndex, transcriptMatchCount])
 
   const getSignedUrl = useCallback(async () => {
     const response = await fetch("/api/signed-url", {
@@ -536,6 +654,198 @@ export default function Home() {
     return () => window.clearTimeout(timeoutId)
   }, [copiedMessageId])
 
+  const clearTranscriptHighlights = useCallback(() => {
+    const container = transcriptRef.current
+    transcriptMatchElementsRef.current = []
+    if (!container) return
+
+    const highlights = container.querySelectorAll<HTMLElement>(
+      'mark[data-transcript-match="true"]'
+    )
+    highlights.forEach((highlight) => {
+      const parent = highlight.parentNode
+      if (!parent) return
+      parent.replaceChild(
+        document.createTextNode(highlight.textContent ?? ""),
+        highlight
+      )
+      parent.normalize()
+    })
+  }, [])
+
+  const closeTranscriptSearch = useCallback(() => {
+    setIsTranscriptSearchOpen(false)
+    setTranscriptSearchQuery("")
+    setActiveTranscriptMatchIndex(-1)
+    clearTranscriptHighlights()
+  }, [clearTranscriptHighlights])
+
+  const navigateTranscriptMatches = useCallback((direction: -1 | 1) => {
+    setActiveTranscriptMatchIndex((previous) => {
+      const totalMatches = transcriptMatchElementsRef.current.length
+      if (totalMatches === 0) return -1
+      if (previous < 0 || previous >= totalMatches) {
+        return direction === 1 ? 0 : totalMatches - 1
+      }
+
+      return (previous + direction + totalMatches) % totalMatches
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!isTranscriptSearchOpen) return
+    const frameId = window.requestAnimationFrame(() => {
+      transcriptSearchInputRef.current?.focus()
+      transcriptSearchInputRef.current?.select()
+    })
+
+    return () => window.cancelAnimationFrame(frameId)
+  }, [isTranscriptSearchOpen])
+
+  useEffect(() => {
+    const handleWindowKeyDown = (event: KeyboardEvent) => {
+      const isFindShortcut =
+        (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f"
+
+      if (isFindShortcut) {
+        event.preventDefault()
+        setIsTranscriptSearchOpen(true)
+        return
+      }
+
+      if (event.key === "Escape" && isTranscriptSearchOpen) {
+        event.preventDefault()
+        closeTranscriptSearch()
+      }
+    }
+
+    window.addEventListener("keydown", handleWindowKeyDown, true)
+    return () => {
+      window.removeEventListener("keydown", handleWindowKeyDown, true)
+    }
+  }, [closeTranscriptSearch, isTranscriptSearchOpen])
+
+  useEffect(() => {
+    clearTranscriptHighlights()
+
+    const query = transcriptSearchQuery.trim()
+    if (!isTranscriptSearchOpen || !query) {
+      return
+    }
+
+    const container = transcriptRef.current
+    if (!container) return
+
+    const matcher = new RegExp(escapeRegExp(query), "gi")
+    const entryNodes = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-transcript-entry='true']")
+    )
+    const nextMatches: HTMLElement[] = []
+
+    entryNodes.forEach((entryNode) => {
+      const walker = document.createTreeWalker(entryNode, NodeFilter.SHOW_TEXT, {
+        acceptNode: (candidate) => {
+          if (!(candidate instanceof Text)) {
+            return NodeFilter.FILTER_REJECT
+          }
+
+          if (!candidate.textContent?.trim()) {
+            return NodeFilter.FILTER_REJECT
+          }
+
+          const parentElement = candidate.parentElement
+          if (!parentElement) {
+            return NodeFilter.FILTER_REJECT
+          }
+
+          if (parentElement.closest("button")) {
+            return NodeFilter.FILTER_REJECT
+          }
+
+          return NodeFilter.FILTER_ACCEPT
+        },
+      })
+
+      const textNodes: Text[] = []
+      while (walker.nextNode()) {
+        textNodes.push(walker.currentNode as Text)
+      }
+
+      textNodes.forEach((textNode) => {
+        const text = textNode.textContent ?? ""
+        matcher.lastIndex = 0
+        if (!matcher.test(text)) {
+          return
+        }
+        matcher.lastIndex = 0
+
+        const fragment = document.createDocumentFragment()
+        let cursor = 0
+
+        for (const match of text.matchAll(matcher)) {
+          const matchStart = match.index ?? 0
+          const matchText = match[0]
+
+          if (matchStart > cursor) {
+            fragment.appendChild(
+              document.createTextNode(text.slice(cursor, matchStart))
+            )
+          }
+
+          const highlight = document.createElement("mark")
+          highlight.dataset.transcriptMatch = "true"
+          highlight.textContent = matchText
+          setTranscriptMatchActiveState(highlight, false)
+          nextMatches.push(highlight)
+          fragment.appendChild(highlight)
+          cursor = matchStart + matchText.length
+        }
+
+        if (cursor < text.length) {
+          fragment.appendChild(document.createTextNode(text.slice(cursor)))
+        }
+
+        textNode.parentNode?.replaceChild(fragment, textNode)
+      })
+    })
+
+    transcriptMatchElementsRef.current = nextMatches
+  }, [clearTranscriptHighlights, isTranscriptSearchOpen, messages, transcriptSearchQuery])
+
+  useEffect(() => {
+    const matches = transcriptMatchElementsRef.current
+    if (matches.length === 0) return
+
+    matches.forEach((matchElement, index) => {
+      setTranscriptMatchActiveState(
+        matchElement,
+        index === activeTranscriptMatchIndex
+      )
+    })
+
+    if (
+      activeTranscriptMatchIndex >= 0 &&
+      activeTranscriptMatchIndex < matches.length
+    ) {
+      matches[activeTranscriptMatchIndex].scrollIntoView({
+        block: "center",
+        behavior: "smooth",
+      })
+    }
+  }, [
+    activeTranscriptMatchIndex,
+    isTranscriptSearchOpen,
+    messages,
+    transcriptMatchCount,
+    transcriptSearchQuery,
+  ])
+
+  useEffect(() => {
+    return () => {
+      clearTranscriptHighlights()
+    }
+  }, [clearTranscriptHighlights])
+
   const copyToClipboard = useCallback(async (text: string) => {
     try {
       await navigator.clipboard.writeText(text)
@@ -563,6 +873,38 @@ export default function Home() {
       setCopiedTranscript(true)
     }
   }, [messages, copyToClipboard])
+
+  const handleDownloadTranscript = useCallback(() => {
+    if (messages.length === 0) return
+
+    const generatedAt = new Date()
+    const filename = formatTranscriptExportFilename(generatedAt)
+    const markdown = formatTranscriptExportMarkdown({
+      generatedAt,
+      conversationId,
+      durationSeconds: sessionDurationSeconds,
+      messages,
+    })
+
+    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" })
+    const objectUrl = URL.createObjectURL(blob)
+    const anchor = document.createElement("a")
+    anchor.href = objectUrl
+    anchor.download = filename
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
+  }, [conversationId, messages, sessionDurationSeconds])
+
+  const handleToggleTranscriptSearch = useCallback(() => {
+    if (isTranscriptSearchOpen) {
+      closeTranscriptSearch()
+      return
+    }
+
+    setIsTranscriptSearchOpen(true)
+  }, [closeTranscriptSearch, isTranscriptSearchOpen])
 
   const handleCopyToolLog = useCallback(async () => {
     if (toolLogEntries.length === 0) return
@@ -655,8 +997,12 @@ export default function Home() {
     setCopiedToolLog(false)
     setCopiedErrorLog(false)
     setCopiedMessageId(null)
+    setIsTranscriptSearchOpen(false)
+    setTranscriptSearchQuery("")
+    setActiveTranscriptMatchIndex(-1)
+    clearTranscriptHighlights()
     setNewSessionSignal((prev) => prev + 1)
-  }, [])
+  }, [clearTranscriptHighlights])
 
   const appendToolLogEntry = useCallback((entry: ToolLogEntry | null) => {
     if (!entry) return
@@ -1087,31 +1433,131 @@ export default function Home() {
           <section className="flex min-h-0 w-full flex-col md:w-[70%]">
 
           <div className="bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border shadow-sm">
-            <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
-              <div>
-                <h2 className="text-sm font-medium">Live Transcript</h2>
-                <p className="text-muted-foreground mt-0.5 text-xs">
-                  {messages.length} messages
-                </p>
+            <div className="border-b px-4 py-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-medium">Live Transcript</h2>
+                  <p className="text-muted-foreground mt-0.5 text-xs">
+                    {messages.length} messages
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleToggleTranscriptSearch}
+                    className={copyButtonClassName}
+                    title={
+                      isTranscriptSearchOpen
+                        ? "Close transcript search (Esc)"
+                        : "Search transcript (Ctrl/Cmd+F)"
+                    }
+                    aria-label={
+                      isTranscriptSearchOpen
+                        ? "Close transcript search"
+                        : "Search transcript"
+                    }
+                  >
+                    <Search className="h-3.5 w-3.5 text-zinc-400" />
+                    <span className="hidden sm:inline">Search</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownloadTranscript}
+                    disabled={messages.length === 0}
+                    className={copyButtonClassName}
+                    title={
+                      messages.length > 0
+                        ? "Download full transcript as Markdown"
+                        : "No transcript messages to download"
+                    }
+                  >
+                    <Download className="h-3.5 w-3.5 text-zinc-400" />
+                    <span>Download</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCopyTranscript}
+                    disabled={messages.length === 0}
+                    className={copyButtonClassName}
+                    title={
+                      messages.length > 0
+                        ? "Copy full transcript"
+                        : "No transcript messages to copy"
+                    }
+                  >
+                    {copiedTranscript ? (
+                      <Check className="h-3.5 w-3.5 text-emerald-400" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5 text-zinc-400" />
+                    )}
+                    <span>{copiedTranscript ? "Copied" : "Copy"}</span>
+                  </button>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={handleCopyTranscript}
-                disabled={messages.length === 0}
-                className={copyButtonClassName}
-                title={
-                  messages.length > 0
-                    ? "Copy full transcript"
-                    : "No transcript messages to copy"
-                }
-              >
-                {copiedTranscript ? (
-                  <Check className="h-3.5 w-3.5 text-emerald-400" />
-                ) : (
-                  <Copy className="h-3.5 w-3.5 text-zinc-400" />
-                )}
-                <span>{copiedTranscript ? "Copied" : "Copy"}</span>
-              </button>
+
+              {isTranscriptSearchOpen && (
+                <div
+                  className="mt-3 flex flex-wrap items-center gap-2"
+                  data-transcript-search="true"
+                >
+                  <div className="relative min-w-[220px] flex-1">
+                    <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
+                    <input
+                      ref={transcriptSearchInputRef}
+                      type="text"
+                      value={transcriptSearchQuery}
+                      onChange={(event) => {
+                        const nextQuery = event.target.value
+                        setTranscriptSearchQuery(nextQuery)
+                        setActiveTranscriptMatchIndex(
+                          countTranscriptMatches(messages, nextQuery) > 0 ? 0 : -1
+                        )
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault()
+                          navigateTranscriptMatches(event.shiftKey ? -1 : 1)
+                        }
+                      }}
+                      placeholder="Search transcript..."
+                      className="bg-background h-8 w-full rounded-md border border-zinc-700 pr-2 pl-8 text-xs outline-none transition-colors focus:border-zinc-500"
+                    />
+                  </div>
+
+                  <span className="text-muted-foreground min-w-[120px] text-xs">
+                    {transcriptSearchQuery.trim().length === 0
+                      ? "Type to search"
+                      : transcriptMatchCount === 0
+                        ? "No matches"
+                        : `${activeTranscriptMatchDisplayIndex} of ${transcriptMatchCount} matches`}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => navigateTranscriptMatches(-1)}
+                    disabled={
+                      transcriptSearchQuery.trim().length === 0 ||
+                      transcriptMatchCount === 0
+                    }
+                    className={copyButtonClassName}
+                    title="Previous match (Shift+Enter)"
+                  >
+                    <ArrowUp className="h-3.5 w-3.5 text-zinc-300" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigateTranscriptMatches(1)}
+                    disabled={
+                      transcriptSearchQuery.trim().length === 0 ||
+                      transcriptMatchCount === 0
+                    }
+                    className={copyButtonClassName}
+                    title="Next match (Enter)"
+                  >
+                    <ArrowDown className="h-3.5 w-3.5 text-zinc-300" />
+                  </button>
+                </div>
+              )}
             </div>
 
             <div
@@ -1129,6 +1575,7 @@ export default function Home() {
                     from={entry.source === "user" ? "user" : "assistant"}
                   >
                     <MessageContent
+                      data-transcript-entry="true"
                       variant={entry.source === "user" ? "contained" : "flat"}
                       className={cn(
                         "relative pr-9",
