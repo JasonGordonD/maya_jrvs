@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="JRVS">
+  <rect width="128" height="128" rx="22" fill="#09090b" />
+  <rect x="10" y="10" width="108" height="108" rx="18" fill="#18181b" stroke="#27272a" />
+  <text
+    x="64"
+    y="76"
+    text-anchor="middle"
+    font-size="38"
+    font-weight="700"
+    font-family="Inter, Arial, sans-serif"
+    fill="#f4f4f5"
+  >
+    JRVS
+  </text>
+</svg>
