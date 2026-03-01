@@ -28,9 +28,12 @@ const ACCEPTED_FILE_TYPES =
   ".pdf,.txt,.md,.docx,.json,.csv,.png,.jpg,.jpeg"
 
 export type AudioInputMode = "mic" | "device" | "mixed"
+export type ConversationClientToolHandler = (
+  parameters: Record<string, unknown>
+) => Promise<string> | string
 export type ConversationClientTools = Record<
   string,
-  (parameters: any) => Promise<string | number | void> | string | number | void
+  ConversationClientToolHandler
 >
 
 export interface ConversationBarProps {

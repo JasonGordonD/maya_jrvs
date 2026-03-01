@@ -20,9 +20,9 @@ import {
   type AudioInputMode,
   type ConversationClientTools,
 } from "@/components/ui/conversation-bar"
+import { Mjrvs_structured_markdown_block } from "@/components/ui/mjrvs_structured_markdown_block"
 import { Message, MessageContent } from "@/components/ui/message"
 import { MicSelector } from "@/components/ui/mic-selector"
-import { MjrvsStructuredContent } from "@/components/ui/mjrvs_structured_content"
 import { Response } from "@/components/ui/response"
 import { cn } from "@/lib/utils"
 
@@ -54,8 +54,8 @@ type ToolLogEntry = {
   timestamp: string
   toolName: string
   action?: string
-  parameters: string
-  resultSummary: string
+  params?: string
+  resultSummary?: string
 }
 
 type ErrorSeverity = "auth" | "timeout" | "connection" | "other"
@@ -74,28 +74,16 @@ type ConnectionStatus =
   | "connected"
   | "disconnecting"
 
-type DisplayStructuredContentParams = {
-  content: string
-  label?: string
-}
-
-type ReportToolDispatchParams = {
-  tool_name: string
-  action?: string
-  params?: string
-  result_summary?: string
-}
-
-type ReportActiveNodeParams = {
-  node_name: string
-  node_type?: string
-}
-
 const createMessageId = () =>
   `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
 
 const createTimestamp = () =>
-  new Date().toLocaleTimeString("en-GB", { hour12: false })
+  new Date().toLocaleTimeString("en-GB", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  })
 
 const cleanInline = (value: string) => value.replace(/\s+/g, " ").trim()
 
@@ -110,6 +98,15 @@ const stringifyUnknown = (value: unknown): string => {
   } catch {
     return String(value)
   }
+}
+
+const readParameterString = (parameters: unknown, key: string): string => {
+  if (!parameters || typeof parameters !== "object") return ""
+  const parameterRecord = parameters as Record<string, unknown>
+  const rawValue = parameterRecord[key]
+  if (typeof rawValue === "string") return rawValue.trim()
+  if (rawValue === undefined || rawValue === null) return ""
+  return cleanInline(stringifyUnknown(rawValue))
 }
 
 const truncateConversationId = (id: string): string => {
@@ -283,7 +280,7 @@ const extractToolNameFromText = (text: string): string | null => {
   return match?.[1] ? match[1].trim() : null
 }
 
-const extractParametersFromText = (text: string): string => {
+const extractParametersFromText = (text: string): string | undefined => {
   const queryMatch = text.match(
     /\bquery\b[^a-z0-9]{0,3}(?:"([^"]+)"|'([^']+)'|([^,\n;]+))/i
   )
@@ -299,7 +296,7 @@ const extractParametersFromText = (text: string): string => {
     return `${paramsMatch[1]}: ${truncate(cleanInline(paramsMatch[2]), 90)}`
   }
 
-  return "params: n/a"
+  return undefined
 }
 
 const extractResultSummaryFromText = (text: string): string => {
@@ -375,7 +372,7 @@ const createToolLogEntryFromText = (
 
   return {
     toolName: toolName ?? "tool-dispatch",
-    parameters: extractParametersFromText(text),
+    params: extractParametersFromText(text),
     resultSummary: extractResultSummaryFromText(text),
   }
 }
@@ -420,6 +417,11 @@ const createToolLogEntry = (payload: unknown): ToolLogEntry | null => {
     "summary",
     "status",
   ])
+  const actionValue = findFirstMatchingKeyValue(payload, [
+    "action",
+    "operation",
+    "event",
+  ])
 
   const raw = cleanInline(stringifyUnknown(payload))
   const fallbackFromText = createToolLogEntryFromText(raw)
@@ -433,19 +435,23 @@ const createToolLogEntry = (payload: unknown): ToolLogEntry | null => {
     fallbackFromText?.toolName ??
     "tool-dispatch"
 
-  const parameters = parametersValue
-    ? `params: ${truncate(cleanInline(stringifyUnknown(parametersValue)), 90)}`
-    : fallbackFromText?.parameters ?? "params: n/a"
+  const params = parametersValue
+    ? truncate(cleanInline(stringifyUnknown(parametersValue)), 220)
+    : fallbackFromText?.params
 
   const resultSummary = resultValue
     ? truncate(cleanInline(stringifyUnknown(resultValue)), 90)
-    : fallbackFromText?.resultSummary ?? "result unavailable"
+    : fallbackFromText?.resultSummary
+  const action = actionValue
+    ? truncate(cleanInline(stringifyUnknown(actionValue)), 90)
+    : undefined
 
   return {
     id: createMessageId(),
     timestamp: createTimestamp(),
     toolName,
-    parameters,
+    action,
+    params,
     resultSummary,
   }
 }
@@ -536,6 +542,7 @@ export default function Home() {
   const [useAuthoritativeNodeUpdates, setUseAuthoritativeNodeUpdates] =
     useState(false)
   const [activeNode, setActiveNode] = useState<string>("—")
+  const [activeNodeType, setActiveNodeType] = useState<string>("")
   const [conversationId, setConversationId] = useState<string>("")
   const [copiedConversationId, setCopiedConversationId] = useState(false)
   const [copiedTranscript, setCopiedTranscript] = useState(false)
@@ -1008,11 +1015,13 @@ export default function Home() {
     if (toolLogEntries.length === 0) return
     const payload = toolLogEntries
       .map((entry) => {
-        const parts = [`[${entry.timestamp}] ${entry.toolName}`]
-        if (entry.action) parts.push(`action: ${entry.action}`)
-        parts.push(entry.parameters)
-        parts.push(entry.resultSummary)
-        return parts.join(" -> ")
+        const segments = [`[${entry.timestamp}] ${entry.toolName}`]
+        if (entry.action) segments.push(`action: ${entry.action}`)
+        if (entry.params) segments.push(`params: ${entry.params}`)
+        if (entry.resultSummary) {
+          segments.push(`result: ${entry.resultSummary}`)
+        }
+        return segments.join(" | ")
       })
       .join("\n")
     const copied = await copyToClipboard(payload)
@@ -1258,6 +1267,8 @@ export default function Home() {
   const handleConversationIdChange = useCallback(
     (nextConversationId: string) => {
       setConversationId(nextConversationId)
+      setActiveNode("—")
+      setActiveNodeType("")
       if (
         connectionStatus === "connected" ||
         connectionStatus === "connecting" ||
@@ -1285,6 +1296,7 @@ export default function Home() {
     setUseStructuredToolDispatch(false)
     setUseAuthoritativeNodeUpdates(false)
     setActiveNode("—")
+    setActiveNodeType("")
     setConversationId("")
     setSystemAudioCaptureLive(false)
     setSessionDurationSeconds(0)
@@ -1308,7 +1320,8 @@ export default function Home() {
       if (
         last &&
         last.toolName === entry.toolName &&
-        last.parameters === entry.parameters &&
+        last.action === entry.action &&
+        last.params === entry.params &&
         last.resultSummary === entry.resultSummary
       ) {
         return previous
@@ -1319,18 +1332,15 @@ export default function Home() {
   }, [])
 
   const handleDisplayStructuredContent = useCallback(
-    (parameters: DisplayStructuredContentParams) => {
-      const content =
-        typeof parameters?.content === "string" ? parameters.content.trim() : ""
+    (parameters: Record<string, unknown>) => {
+      const content = readParameterString(parameters, "content")
 
       if (!content) {
-        return "No content to display"
+        return "missing_content"
       }
 
-      const label =
-        typeof parameters?.label === "string" && parameters.label.trim()
-          ? parameters.label.trim()
-          : undefined
+      const labelValue = readParameterString(parameters, "label")
+      const label = labelValue || undefined
 
       updateMessages((previous) => [
         ...previous,
@@ -1343,32 +1353,21 @@ export default function Home() {
         },
       ])
 
-      return "Content displayed successfully"
+      return "displayed"
     },
     [updateMessages]
   )
 
   const handleReportToolDispatch = useCallback(
-    (parameters: ReportToolDispatchParams) => {
-      const rawToolName =
-        typeof parameters?.tool_name === "string"
-          ? parameters.tool_name.trim()
-          : ""
+    (parameters: Record<string, unknown>) => {
+      const rawToolName = readParameterString(parameters, "tool_name")
       if (!rawToolName) {
-        return "Missing tool_name"
+        return "missing_tool_name"
       }
 
-      const rawAction =
-        typeof parameters?.action === "string" ? parameters.action.trim() : ""
-      const paramsText =
-        typeof parameters?.params === "string" && parameters.params.trim()
-          ? parameters.params.trim()
-          : "params: n/a"
-      const resultSummary =
-        typeof parameters?.result_summary === "string" &&
-        parameters.result_summary.trim()
-          ? parameters.result_summary.trim()
-          : "result unavailable"
+      const rawAction = readParameterString(parameters, "action")
+      const paramsText = readParameterString(parameters, "params")
+      const resultSummary = readParameterString(parameters, "result_summary")
 
       setUseStructuredToolDispatch(true)
 
@@ -1377,42 +1376,34 @@ export default function Home() {
         timestamp: createTimestamp(),
         toolName: rawToolName,
         action: rawAction || undefined,
-        parameters: paramsText,
-        resultSummary,
+        params: paramsText || undefined,
+        resultSummary: resultSummary || undefined,
       })
 
-      return "Logged"
+      return "ok"
     },
     [appendToolLogEntry]
   )
 
   const handleReportActiveNode = useCallback(
-    (parameters: ReportActiveNodeParams) => {
-      const nodeName =
-        typeof parameters?.node_name === "string"
-          ? parameters.node_name.trim()
-          : ""
+    (parameters: Record<string, unknown>) => {
+      const nodeName = readParameterString(parameters, "node_name")
 
       if (!nodeName) {
-        return "Missing node_name"
+        return "missing_node_name"
       }
 
-      const nodeType =
-        typeof parameters?.node_type === "string"
-          ? parameters.node_type.trim()
-          : ""
+      const nodeType = readParameterString(parameters, "node_type")
 
       setUseAuthoritativeNodeUpdates(true)
-      setActiveNode(nodeType ? `${nodeName} (${nodeType})` : nodeName)
+      setActiveNode(nodeName)
+      setActiveNodeType(nodeType)
 
-      return "Node updated"
+      return "ok"
     },
     []
   )
 
-  // AGENT-SIDE: These client tools must also be registered in the ElevenLabs
-  // agent configuration with matching names and parameter schemas.
-  // See CC work order for agent-side setup.
   const clientTools: ConversationClientTools = useMemo(
     () => ({
       display_structured_content: handleDisplayStructuredContent,
@@ -1437,6 +1428,7 @@ export default function Home() {
         const nodeFromDebug = extractNodeFromMessage(stringifyUnknown(event))
         if (nodeFromDebug) {
           setActiveNode(nodeFromDebug)
+          setActiveNodeType("")
         }
       }
     },
@@ -1453,6 +1445,7 @@ export default function Home() {
       const detectedNode = extractNodeFromMessage(event.message)
       if (detectedNode) {
         setActiveNode(detectedNode)
+        setActiveNodeType("")
       }
     }
 
@@ -1606,28 +1599,24 @@ export default function Home() {
                 key={entry.id}
                 className="rounded-md border bg-muted/20 px-2 py-2 text-xs"
               >
-                <p className="text-muted-foreground font-mono text-[11px]">
-                  [{entry.timestamp}]
-                </p>
-                <p className="mt-0.5 font-mono font-bold leading-5 break-words">
-                  {entry.toolName}
-                </p>
+                <p className="font-mono text-[11px] text-zinc-400">[{entry.timestamp}]</p>
+                <p className="mt-1 font-semibold break-words">{entry.toolName}</p>
                 {entry.action && (
-                  <p className="mt-0.5 font-mono leading-5 break-words">
-                    {entry.action}
+                  <p className="mt-1">
+                    <span className="text-muted-foreground">Action:</span>{" "}
+                    <span className="font-medium">{entry.action}</span>
                   </p>
                 )}
-                {entry.parameters && entry.parameters !== "params: n/a" && (
-                  <p className="text-muted-foreground mt-0.5 font-mono leading-5 break-words">
-                    {entry.parameters}
+                {entry.params && (
+                  <p className="text-muted-foreground mt-1 break-words whitespace-pre-wrap">
+                    {entry.params}
                   </p>
                 )}
-                {entry.resultSummary &&
-                  entry.resultSummary !== "result unavailable" && (
-                    <p className="mt-0.5 font-mono leading-5 break-words">
-                      {entry.resultSummary}
-                    </p>
-                  )}
+                {entry.resultSummary && (
+                  <p className="mt-1 break-words whitespace-pre-wrap">
+                    {entry.resultSummary}
+                  </p>
+                )}
               </div>
             ))
           )}
@@ -1831,9 +1820,14 @@ export default function Home() {
                   <span className="hidden sm:inline">History</span>
                 </button>
 
-                <div className="min-w-0 truncate">
-                  <span className="text-zinc-400">Node:</span>{" "}
-                  <span className="font-medium">{activeNode}</span>
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="text-zinc-400">Node:</span>
+                  <span className="min-w-0 truncate font-medium">{activeNode}</span>
+                  {activeNode !== "—" && activeNodeType && (
+                    <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-300">
+                      {activeNodeType}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -2089,36 +2083,38 @@ export default function Home() {
                           data-transcript-entry="true"
                           variant={entry.source === "user" ? "contained" : "flat"}
                           className={cn(
-                            "relative pr-9",
+                            "relative",
+                            entry.source !== "structured" && "pr-9",
                             entry.source === "ai" && "max-w-[90%]",
-                            entry.source === "structured" &&
-                              "max-w-[95%] border-l-2 border-sky-500/60 bg-sky-500/10 pl-3"
+                            entry.source === "structured" && "max-w-[95%]"
                           )}
                         >
-                          <button
-                            type="button"
-                            onClick={() => {
-                              void handleCopyMessage(entry)
-                            }}
-                            className={cn(
-                              "absolute top-2 right-2 inline-flex h-6 w-6 items-center justify-center rounded-md border border-zinc-800 bg-zinc-950/90 text-zinc-100 opacity-0 transition-opacity",
-                              "group-hover:opacity-100 focus-visible:opacity-100"
-                            )}
-                            title={
-                              copiedMessageId === entry.id ? "Copied" : "Copy message"
-                            }
-                            aria-label={
-                              copiedMessageId === entry.id
-                                ? "Message copied"
-                                : "Copy message"
-                            }
-                          >
-                            {copiedMessageId === entry.id ? (
-                              <Check className="h-3.5 w-3.5 text-emerald-400" />
-                            ) : (
-                              <Copy className="h-3.5 w-3.5 text-zinc-300" />
-                            )}
-                          </button>
+                          {entry.source !== "structured" && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void handleCopyMessage(entry)
+                              }}
+                              className={cn(
+                                "absolute top-2 right-2 inline-flex h-6 w-6 items-center justify-center rounded-md border border-zinc-800 bg-zinc-950/90 text-zinc-100 opacity-0 transition-opacity",
+                                "group-hover:opacity-100 focus-visible:opacity-100"
+                              )}
+                              title={
+                                copiedMessageId === entry.id ? "Copied" : "Copy message"
+                              }
+                              aria-label={
+                                copiedMessageId === entry.id
+                                  ? "Message copied"
+                                  : "Copy message"
+                              }
+                            >
+                              {copiedMessageId === entry.id ? (
+                                <Check className="h-3.5 w-3.5 text-emerald-400" />
+                              ) : (
+                                <Copy className="h-3.5 w-3.5 text-zinc-300" />
+                              )}
+                            </button>
+                          )}
 
                           <p
                             className={cn(
@@ -2134,9 +2130,10 @@ export default function Home() {
                           </p>
 
                           {entry.source === "structured" ? (
-                            <MjrvsStructuredContent
-                              content={entry.message}
+                            <Mjrvs_structured_markdown_block
                               label={entry.label}
+                              content={entry.message}
+                              on_copy={copyToClipboard}
                             />
                           ) : entry.source === "ai" ? (
                             <Response>{entry.message}</Response>
