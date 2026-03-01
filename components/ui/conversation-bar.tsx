@@ -8,6 +8,7 @@ import {
   Keyboard,
   Mic,
   MicOff,
+  Paperclip,
   PhoneIcon,
   XIcon,
 } from "lucide-react"
@@ -18,6 +19,14 @@ import { Card } from "@/components/ui/card"
 import { LiveWaveform } from "@/components/ui/live-waveform"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
+
+type PendingAttachment = {
+  id: string
+  file: File
+}
+
+const ACCEPTED_FILE_TYPES =
+  ".pdf,.txt,.md,.docx,.json,.csv,.png,.jpg,.jpeg"
 
 export interface ConversationBarProps {
   /**
@@ -123,7 +132,11 @@ export const ConversationBar = React.forwardRef<
     >("disconnected")
     const [keyboardOpen, setKeyboardOpen] = React.useState(false)
     const [textInput, setTextInput] = React.useState("")
+    const [pendingAttachments, setPendingAttachments] = React.useState<
+      PendingAttachment[]
+    >([])
     const mediaStreamRef = React.useRef<MediaStream | null>(null)
+    const fileInputRef = React.useRef<HTMLInputElement | null>(null)
 
     const conversation = useConversation({
       onConnect: () => {
@@ -240,6 +253,7 @@ export const ConversationBar = React.forwardRef<
       if (!textInput.trim()) return
 
       const messageToSend = textInput
+      // V3: implement file upload to agent via client tool or contextual update
       conversation.sendUserMessage(messageToSend)
       setTextInput("")
       onSendMessage?.(messageToSend)
@@ -268,6 +282,31 @@ export const ConversationBar = React.forwardRef<
       },
       [handleSendText]
     )
+
+    const handleOpenFilePicker = React.useCallback(() => {
+      fileInputRef.current?.click()
+    }, [])
+
+    const handleFileSelection = React.useCallback(
+      (event: React.ChangeEvent<HTMLInputElement>) => {
+        const files = event.target.files ? Array.from(event.target.files) : []
+        if (files.length === 0) return
+
+        const attachments = files.map((file) => ({
+          id: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(16).slice(2, 8)}`,
+          file,
+        }))
+
+        setPendingAttachments((prev) => [...prev, ...attachments])
+        setKeyboardOpen(true)
+        event.target.value = ""
+      },
+      []
+    )
+
+    const handleRemoveAttachment = React.useCallback((id: string) => {
+      setPendingAttachments((prev) => prev.filter((attachment) => attachment.id !== id))
+    }, [])
 
     React.useEffect(() => {
       return () => {
@@ -303,50 +342,24 @@ export const ConversationBar = React.forwardRef<
             <div>
               {keyboardOpen && <Separator />}
               <div className="flex items-center justify-between gap-2 p-2">
-                <div className="h-8 w-[120px] md:h-10">
-                  <div
-                    className={cn(
-                      "flex h-full items-center gap-2 rounded-md py-1",
-                      "bg-foreground/5 text-foreground/70"
-                    )}
+                <div className="flex items-center">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept={ACCEPTED_FILE_TYPES}
+                    className="hidden"
+                    onChange={handleFileSelection}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleOpenFilePicker}
+                    aria-label="Add attachments"
+                    title="Add attachments"
                   >
-                    <div className="h-full flex-1">
-                      <div
-                        className={cn(
-                          "relative flex h-full w-full shrink-0 items-center justify-center overflow-hidden rounded-sm",
-                          waveformClassName
-                        )}
-                      >
-                        <LiveWaveform
-                          key={
-                            agentState === "disconnected" ? "idle" : "active"
-                          }
-                          active={isConnected && !isMuted}
-                          processing={agentState === "connecting"}
-                          barWidth={3}
-                          barGap={1}
-                          barRadius={4}
-                          fadeEdges={true}
-                          fadeWidth={24}
-                          sensitivity={1.8}
-                          smoothingTimeConstant={0.85}
-                          height={20}
-                          mode="static"
-                          className={cn(
-                            "h-full w-full transition-opacity duration-300",
-                            agentState === "disconnected" && "opacity-0"
-                          )}
-                        />
-                        {agentState === "disconnected" && (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="text-foreground/50 text-[10px] font-medium">
-                              Customer Support
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                    <Paperclip className="h-5 w-5" />
+                  </Button>
                 </div>
                 <div className="flex items-center">
                   <Button
@@ -404,10 +417,32 @@ export const ConversationBar = React.forwardRef<
             <div
               className={cn(
                 "overflow-hidden transition-all duration-300 ease-out",
-                keyboardOpen ? "max-h-[120px]" : "max-h-0"
+                keyboardOpen ? "max-h-[220px]" : "max-h-0"
               )}
             >
               <div className="relative px-2 pt-2 pb-2">
+                {pendingAttachments.length > 0 && (
+                  <div className="mb-2 flex flex-wrap gap-2 pr-10">
+                    {pendingAttachments.map((attachment) => (
+                      <div
+                        key={attachment.id}
+                        className="bg-foreground/10 text-foreground flex max-w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs"
+                      >
+                        <span className="max-w-[200px] truncate">
+                          {attachment.file.name}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveAttachment(attachment.id)}
+                          className="text-foreground/70 hover:text-foreground inline-flex items-center"
+                          aria-label={`Remove ${attachment.file.name}`}
+                        >
+                          <XIcon className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <Textarea
                   value={textInput}
                   onChange={handleTextChange}
