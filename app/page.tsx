@@ -6,12 +6,11 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
-  Clock,
+  Clock3,
   Copy,
   Download,
   RotateCcw,
   Search,
-  X,
 } from "lucide-react"
 
 import {
@@ -34,6 +33,19 @@ type TranscriptMessage = {
   label?: string
 }
 
+type SessionHistoryEntry = {
+  conversationId: string
+  startedAt: number
+  endedAt: number | null
+  durationSeconds: number | null
+  label: string
+  transcript: TranscriptMessage[]
+}
+
+type EndedSessionHistoryEntry = SessionHistoryEntry & {
+  endedAt: number
+}
+
 type ToolLogEntry = {
   id: string
   timestamp: string
@@ -52,20 +64,6 @@ type ErrorLogEntry = {
 }
 
 type MobilePanelTab = "tools" | "errors"
-
-type HistorySession = {
-  id: string
-  conversationId: string
-  startTime: number
-  startTimeFormatted: string
-  endTime: number | null
-  durationSeconds: number
-  label: string
-  status: "active" | "ended"
-  messages: TranscriptMessage[]
-  toolLogEntries: ToolLogEntry[]
-  errorLogEntries: ErrorLogEntry[]
-}
 type ConnectionStatus =
   | "disconnected"
   | "connecting"
@@ -208,14 +206,10 @@ const countTranscriptMatches = (
   const normalizedQuery = query.trim()
   if (!normalizedQuery) return 0
 
-  return transcriptEntries.reduce((total, entry) => {
-    let count = countMatchesInText(`[${entry.timestamp}]`, normalizedQuery)
-    if (entry.source === "structured" && entry.label) {
-      count += countMatchesInText(entry.label, normalizedQuery)
-    }
-    count += countMatchesInText(entry.message, normalizedQuery)
-    return total + count
-  }, 0)
+  return transcriptEntries.reduce(
+    (total, entry) => total + countMatchesInText(formatTranscriptLine(entry), normalizedQuery),
+    0
+  )
 }
 
 const copyButtonClassName =
@@ -233,6 +227,14 @@ const formatSessionDuration = (totalSeconds: number): string => {
 
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
 }
+
+const formatSessionStartTime = (timestamp: number): string =>
+  new Date(timestamp).toLocaleTimeString("en-GB", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  })
 
 const normalizeNodeLabel = (value: string): string =>
   value
@@ -515,8 +517,11 @@ export default function Home() {
   const [messages, setMessages] = useState<TranscriptMessage[]>([])
   const [selectedMicId, setSelectedMicId] = useState<string>("")
   const [audioInputMode, setAudioInputMode] = useState<AudioInputMode>("mic")
-  const [systemAudioCaptureSupported, setSystemAudioCaptureSupported] =
-    useState(false)
+  const [systemAudioCaptureSupported] = useState(
+    () =>
+      typeof navigator !== "undefined" &&
+      !!navigator.mediaDevices?.getDisplayMedia
+  )
   const [systemAudioCaptureLive, setSystemAudioCaptureLive] = useState(false)
   const [audioModeRestartSignal, setAudioModeRestartSignal] = useState(0)
   const [newSessionSignal, setNewSessionSignal] = useState(0)
@@ -539,43 +544,84 @@ export default function Home() {
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("disconnected")
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [isHistorySidebarOpen, setIsHistorySidebarOpen] = useState(false)
+  const [sessionHistory, setSessionHistory] = useState<SessionHistoryEntry[]>([])
+  const [viewedSessionId, setViewedSessionId] = useState<string | null>(null)
   const [isAgentSpeaking, setIsAgentSpeaking] = useState(false)
   const [toolLogEntries, setToolLogEntries] = useState<ToolLogEntry[]>([])
   const [errorLogEntries, setErrorLogEntries] = useState<ErrorLogEntry[]>([])
   const [isToolPanelOpen, setIsToolPanelOpen] = useState(true)
   const [mobilePanelTab, setMobilePanelTab] = useState<MobilePanelTab>("tools")
-  const [sessionHistory, setSessionHistory] = useState<HistorySession[]>([])
-  const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false)
-  const [viewingSessionId, setViewingSessionId] = useState<string | null>(null)
-  const [editingLabelId, setEditingLabelId] = useState<string | null>(null)
   const transcriptRef = useRef<HTMLDivElement>(null)
   const transcriptSearchInputRef = useRef<HTMLInputElement>(null)
   const transcriptMatchElementsRef = useRef<HTMLElement[]>([])
   const toolLogRef = useRef<HTMLDivElement>(null)
   const errorLogRef = useRef<HTMLDivElement>(null)
-  const sessionStartTimeRef = useRef<number | null>(null)
-  const currentSessionRef = useRef({
-    messages: [] as TranscriptMessage[],
-    toolLogEntries: [] as ToolLogEntry[],
-    errorLogEntries: [] as ErrorLogEntry[],
-    conversationId: "",
-  })
-  currentSessionRef.current = { messages, toolLogEntries, errorLogEntries, conversationId }
 
-  const viewingSession = useMemo(() => {
-    if (!viewingSessionId) return null
-    return sessionHistory.find(s => s.conversationId === viewingSessionId) ?? null
-  }, [viewingSessionId, sessionHistory])
+  const viewedSession = useMemo(() => {
+    if (!viewedSessionId) return null
+    return (
+      sessionHistory.find((entry) => entry.conversationId === viewedSessionId) ??
+      null
+    )
+  }, [sessionHistory, viewedSessionId])
 
-  const displayMessages = viewingSession ? viewingSession.messages : messages
+  const cachedViewedSession =
+    viewedSession && viewedSession.endedAt !== null
+      ? (viewedSession as EndedSessionHistoryEntry)
+      : null
+  const viewingCachedSession = cachedViewedSession !== null
 
-  const displayMessagesRef = useRef(displayMessages)
-  displayMessagesRef.current = displayMessages
+  const visibleTranscriptMessages = cachedViewedSession
+    ? cachedViewedSession.transcript
+    : messages
+
+  const visibleTranscriptConversationId = cachedViewedSession
+    ? cachedViewedSession.conversationId
+    : conversationId
+
+  const visibleTranscriptDurationSeconds = cachedViewedSession
+    ? cachedViewedSession.durationSeconds ??
+      Math.max(
+        0,
+        Math.floor(
+          (cachedViewedSession.endedAt - cachedViewedSession.startedAt) / 1000
+        )
+      )
+    : sessionDurationSeconds
+
+  const hasActiveSession = Boolean(
+    activeSessionId &&
+      (connectionStatus === "connected" ||
+        connectionStatus === "connecting" ||
+        connectionStatus === "disconnecting")
+  )
+
+  const orderedSessionHistory = useMemo(() => {
+    const sortedByStartTime = [...sessionHistory].sort(
+      (left, right) => right.startedAt - left.startedAt
+    )
+
+    if (!activeSessionId) return sortedByStartTime
+
+    const activeEntry = sortedByStartTime.find(
+      (entry) => entry.conversationId === activeSessionId
+    )
+    if (!activeEntry) return sortedByStartTime
+
+    return [
+      activeEntry,
+      ...sortedByStartTime.filter(
+        (entry) => entry.conversationId !== activeSessionId
+      ),
+    ]
+  }, [activeSessionId, sessionHistory])
 
   const transcriptMatchCount = useMemo(() => {
     if (!isTranscriptSearchOpen) return 0
-    return countTranscriptMatches(displayMessages, transcriptSearchQuery)
-  }, [isTranscriptSearchOpen, displayMessages, transcriptSearchQuery])
+    return countTranscriptMatches(visibleTranscriptMessages, transcriptSearchQuery)
+  }, [isTranscriptSearchOpen, transcriptSearchQuery, visibleTranscriptMessages])
 
   const activeTranscriptMatchDisplayIndex = useMemo(() => {
     if (transcriptMatchCount === 0) return 0
@@ -608,16 +654,9 @@ export default function Home() {
   }, [])
 
   useEffect(() => {
-    if (viewingSessionId) return
     if (!transcriptRef.current) return
     transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
-  }, [messages, viewingSessionId])
-
-  useEffect(() => {
-    if (viewingSessionId && transcriptRef.current) {
-      transcriptRef.current.scrollTop = 0
-    }
-  }, [viewingSessionId])
+  }, [visibleTranscriptMessages])
 
   useEffect(() => {
     if (!toolLogRef.current) return
@@ -628,13 +667,6 @@ export default function Home() {
     if (!errorLogRef.current) return
     errorLogRef.current.scrollTop = errorLogRef.current.scrollHeight
   }, [errorLogEntries])
-
-  useEffect(() => {
-    setSystemAudioCaptureSupported(
-      typeof navigator !== "undefined" &&
-        !!navigator.mediaDevices?.getDisplayMedia
-    )
-  }, [])
 
   useEffect(() => {
     if (connectionStatus !== "connected" || sessionStartedAt === null) return
@@ -859,7 +891,12 @@ export default function Home() {
     })
 
     transcriptMatchElementsRef.current = nextMatches
-  }, [clearTranscriptHighlights, isTranscriptSearchOpen, displayMessages, transcriptSearchQuery])
+  }, [
+    clearTranscriptHighlights,
+    isTranscriptSearchOpen,
+    transcriptSearchQuery,
+    visibleTranscriptMessages,
+  ])
 
   useEffect(() => {
     const matches = transcriptMatchElementsRef.current
@@ -884,9 +921,9 @@ export default function Home() {
   }, [
     activeTranscriptMatchIndex,
     isTranscriptSearchOpen,
-    displayMessages,
     transcriptMatchCount,
     transcriptSearchQuery,
+    visibleTranscriptMessages,
   ])
 
   useEffect(() => {
@@ -915,28 +952,26 @@ export default function Home() {
   }, [conversationId, copyToClipboard])
 
   const handleCopyTranscript = useCallback(async () => {
-    const msgs = displayMessagesRef.current
-    if (msgs.length === 0) return
-    const payload = msgs.map((entry) => formatTranscriptLine(entry)).join("\n")
+    if (visibleTranscriptMessages.length === 0) return
+    const payload = visibleTranscriptMessages
+      .map((entry) => formatTranscriptLine(entry))
+      .join("\n")
     const copied = await copyToClipboard(payload)
     if (copied) {
       setCopiedTranscript(true)
     }
-  }, [copyToClipboard])
+  }, [copyToClipboard, visibleTranscriptMessages])
 
   const handleDownloadTranscript = useCallback(() => {
-    const msgs = displayMessagesRef.current
-    if (msgs.length === 0) return
+    if (visibleTranscriptMessages.length === 0) return
 
-    const cid = viewingSession ? viewingSession.conversationId : conversationId
-    const duration = viewingSession ? viewingSession.durationSeconds : sessionDurationSeconds
     const generatedAt = new Date()
     const filename = formatTranscriptExportFilename(generatedAt)
     const markdown = formatTranscriptExportMarkdown({
       generatedAt,
-      conversationId: cid,
-      durationSeconds: duration,
-      messages: msgs,
+      conversationId: visibleTranscriptConversationId,
+      durationSeconds: visibleTranscriptDurationSeconds,
+      messages: visibleTranscriptMessages,
     })
 
     const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" })
@@ -948,7 +983,11 @@ export default function Home() {
     anchor.click()
     document.body.removeChild(anchor)
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
-  }, [conversationId, sessionDurationSeconds, viewingSession])
+  }, [
+    visibleTranscriptConversationId,
+    visibleTranscriptDurationSeconds,
+    visibleTranscriptMessages,
+  ])
 
   const handleToggleTranscriptSearch = useCallback(() => {
     if (isTranscriptSearchOpen) {
@@ -994,6 +1033,155 @@ export default function Home() {
     [copyToClipboard]
   )
 
+  const handleViewHistoricalSession = useCallback(
+    (session: SessionHistoryEntry) => {
+      if (session.endedAt === null) return
+      setViewedSessionId(session.conversationId)
+      setIsTranscriptSearchOpen(false)
+      setTranscriptSearchQuery("")
+      setActiveTranscriptMatchIndex(-1)
+      clearTranscriptHighlights()
+    },
+    [clearTranscriptHighlights]
+  )
+
+  const handleBackToLiveTranscript = useCallback(() => {
+    setViewedSessionId(null)
+    setActiveTranscriptMatchIndex(-1)
+    clearTranscriptHighlights()
+  }, [clearTranscriptHighlights])
+
+  const handleRenameHistorySession = useCallback((session: SessionHistoryEntry) => {
+    const nextLabel = window.prompt("Rename session label", session.label)
+    if (nextLabel === null) return
+
+    const normalizedLabel = nextLabel.trim()
+    setSessionHistory((previous) =>
+      previous.map((entry) =>
+        entry.conversationId === session.conversationId
+          ? { ...entry, label: normalizedLabel }
+          : entry
+      )
+    )
+  }, [])
+
+  const upsertSessionHistoryEntry = useCallback(
+    ({
+      sessionId,
+      startedAt,
+      transcript,
+    }: {
+      sessionId: string
+      startedAt: number
+      transcript: TranscriptMessage[]
+    }) => {
+      setSessionHistory((previous) => {
+        const existing = previous.find((entry) => entry.conversationId === sessionId)
+        if (existing) {
+          const updated: SessionHistoryEntry = {
+            ...existing,
+            startedAt,
+            endedAt: null,
+            durationSeconds: null,
+            transcript:
+              transcript.length > 0 ? transcript : existing.transcript,
+          }
+
+          return [
+            updated,
+            ...previous.filter((entry) => entry.conversationId !== sessionId),
+          ]
+        }
+
+        return [
+          {
+            conversationId: sessionId,
+            startedAt,
+            endedAt: null,
+            durationSeconds: null,
+            label: "",
+            transcript,
+          },
+          ...previous,
+        ]
+      })
+    },
+    []
+  )
+
+  const syncTranscriptToSession = useCallback(
+    (sessionId: string | null, transcript: TranscriptMessage[]) => {
+      if (!sessionId) return
+
+      setSessionHistory((previous) => {
+        const targetIndex = previous.findIndex(
+          (entry) => entry.conversationId === sessionId
+        )
+        if (targetIndex < 0) return previous
+
+        const current = previous[targetIndex]
+        if (current.endedAt !== null) return previous
+
+        // Preserve previous transcript when the UI resets for session handoff.
+        if (transcript.length === 0 && current.transcript.length > 0) {
+          return previous
+        }
+
+        if (current.transcript === transcript) return previous
+
+        const next = [...previous]
+        next[targetIndex] = {
+          ...current,
+          transcript,
+        }
+        return next
+      })
+    },
+    []
+  )
+
+  const markSessionEnded = useCallback(
+    (sessionId: string | null, transcript: TranscriptMessage[]) => {
+      if (!sessionId) return
+      const endedAt = Date.now()
+
+      setSessionHistory((previous) =>
+        previous.map((entry) => {
+          if (entry.conversationId !== sessionId || entry.endedAt !== null) {
+            return entry
+          }
+
+          const finalTranscript =
+            transcript.length === 0 && entry.transcript.length > 0
+              ? entry.transcript
+              : transcript
+
+          return {
+            ...entry,
+            endedAt,
+            durationSeconds: Math.max(
+              0,
+              Math.floor((endedAt - entry.startedAt) / 1000)
+            ),
+            transcript: finalTranscript,
+          }
+        })
+      )
+    },
+    []
+  )
+
+  const updateMessages = useCallback(
+    (updater: (previous: TranscriptMessage[]) => TranscriptMessage[]) => {
+      setMessages((previous) => {
+        const next = updater(previous)
+        syncTranscriptToSession(activeSessionId, next)
+        return next
+      })
+    },
+    [activeSessionId, syncTranscriptToSession]
+  )
+
   const handleAudioInputModeChange = useCallback(
     (nextMode: AudioInputMode) => {
       if (nextMode === audioInputMode) return
@@ -1018,71 +1206,71 @@ export default function Home() {
     [audioInputMode, connectionStatus, systemAudioCaptureSupported]
   )
 
-  const saveCurrentSessionToHistory = useCallback(() => {
-    const { conversationId: cid, messages: msgs, toolLogEntries: tools, errorLogEntries: errors } = currentSessionRef.current
-    const startTime = sessionStartTimeRef.current
-    if (!cid) return
-
-    const duration = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0
-
-    setSessionHistory(prev => {
-      if (prev.some(s => s.conversationId === cid)) {
-        return prev.map(s =>
-          s.conversationId === cid
-            ? { ...s, status: "ended" as const, endTime: Date.now(), durationSeconds: duration, messages: [...msgs], toolLogEntries: [...tools], errorLogEntries: [...errors] }
-            : s
-        )
-      }
-      return [...prev, {
-        id: cid,
-        conversationId: cid,
-        startTime: startTime ?? Date.now(),
-        startTimeFormatted: new Date(startTime ?? Date.now()).toLocaleTimeString("en-GB", { hour12: false }),
-        endTime: Date.now(),
-        durationSeconds: duration,
-        label: "",
-        status: "ended" as const,
-        messages: [...msgs],
-        toolLogEntries: [...tools],
-        errorLogEntries: [...errors],
-      }]
-    })
-  }, [])
-
-  const handleRenameSession = useCallback((sessionId: string, newLabel: string) => {
-    setSessionHistory(prev => prev.map(s =>
-      s.conversationId === sessionId ? { ...s, label: newLabel.trim() } : s
-    ))
-    setEditingLabelId(null)
-  }, [])
-
   const handleConnectionStatusChange = useCallback(
     (status: ConnectionStatus) => {
       setConnectionStatus(status)
 
       if (status === "connected") {
-        sessionStartTimeRef.current = Date.now()
-        setSessionStartedAt(Date.now())
-        setSessionDurationSeconds(0)
-        return
-      }
+        const startedAt = Date.now()
+        const connectedSessionId = conversationId || activeSessionId
 
-      if (status === "disconnected") {
-        saveCurrentSessionToHistory()
-        sessionStartTimeRef.current = null
+        setSessionStartedAt(startedAt)
+        setSessionDurationSeconds(0)
+        if (connectedSessionId) {
+          setActiveSessionId(connectedSessionId)
+          upsertSessionHistoryEntry({
+            sessionId: connectedSessionId,
+            startedAt,
+            transcript: messages,
+          })
+        }
+        return
       }
 
       if (status === "disconnected" || status === "disconnecting") {
         setSessionStartedAt(null)
       }
+
+      if (status === "disconnected") {
+        const endedSessionId = activeSessionId ?? conversationId
+        markSessionEnded(endedSessionId, messages)
+        setActiveSessionId(null)
+      }
     },
-    [saveCurrentSessionToHistory]
+    [
+      activeSessionId,
+      conversationId,
+      markSessionEnded,
+      messages,
+      upsertSessionHistoryEntry,
+    ]
+  )
+
+  const handleConversationIdChange = useCallback(
+    (nextConversationId: string) => {
+      setConversationId(nextConversationId)
+      if (
+        connectionStatus === "connected" ||
+        connectionStatus === "connecting" ||
+        connectionStatus === "disconnecting"
+      ) {
+        setActiveSessionId(nextConversationId)
+      }
+
+      if (connectionStatus === "connected") {
+        upsertSessionHistoryEntry({
+          sessionId: nextConversationId,
+          startedAt: sessionStartedAt ?? Date.now(),
+          transcript: messages,
+        })
+      }
+    },
+    [connectionStatus, messages, sessionStartedAt, upsertSessionHistoryEntry]
   )
 
   const handleNewSession = useCallback(() => {
-    saveCurrentSessionToHistory()
-    setViewingSessionId(null)
-    setMessages([])
+    setViewedSessionId(null)
+    updateMessages(() => [])
     setToolLogEntries([])
     setErrorLogEntries([])
     setUseStructuredToolDispatch(false)
@@ -1092,7 +1280,6 @@ export default function Home() {
     setSystemAudioCaptureLive(false)
     setSessionDurationSeconds(0)
     setSessionStartedAt(null)
-    sessionStartTimeRef.current = null
     setCopiedTranscript(false)
     setCopiedToolLog(false)
     setCopiedErrorLog(false)
@@ -1102,7 +1289,7 @@ export default function Home() {
     setActiveTranscriptMatchIndex(-1)
     clearTranscriptHighlights()
     setNewSessionSignal((prev) => prev + 1)
-  }, [clearTranscriptHighlights, saveCurrentSessionToHistory])
+  }, [clearTranscriptHighlights, updateMessages])
 
   const appendToolLogEntry = useCallback((entry: ToolLogEntry | null) => {
     if (!entry) return
@@ -1136,7 +1323,7 @@ export default function Home() {
           ? parameters.label.trim()
           : undefined
 
-      setMessages((previous) => [
+      updateMessages((previous) => [
         ...previous,
         {
           id: createMessageId(),
@@ -1149,7 +1336,7 @@ export default function Home() {
 
       return "Content displayed successfully"
     },
-    []
+    [updateMessages]
   )
 
   const handleReportToolDispatch = useCallback(
@@ -1263,7 +1450,7 @@ export default function Home() {
     if (!content) return
     const eventTimestamp = createTimestamp()
 
-    setMessages((previous) => {
+    updateMessages((previous) => {
       const last = previous[previous.length - 1]
 
       if (event.source === "user") {
@@ -1307,14 +1494,19 @@ export default function Home() {
         },
       ]
     })
-  }, [appendToolLogEntry, useAuthoritativeNodeUpdates, useStructuredToolDispatch])
+  }, [
+    appendToolLogEntry,
+    updateMessages,
+    useAuthoritativeNodeUpdates,
+    useStructuredToolDispatch,
+  ])
 
   const handleUserTextMessage = useCallback((message: string) => {
     const content = message.trim()
     if (!content) return
     const sentTimestamp = createTimestamp()
 
-    setMessages((previous) => {
+    updateMessages((previous) => {
       const last = previous[previous.length - 1]
       if (last?.source === "user" && last.message === content) {
         return previous
@@ -1330,7 +1522,7 @@ export default function Home() {
         },
       ]
     })
-  }, [])
+  }, [updateMessages])
 
   const handleConversationError = useCallback((error: Error) => {
     console.error("[JRVS] onError", error)
@@ -1469,531 +1661,564 @@ export default function Home() {
   return (
     <main className="min-h-screen p-4 md:p-6">
       <div className="mx-auto flex h-[calc(100vh-2rem)] w-full max-w-7xl gap-4 md:h-[calc(100vh-3rem)]">
-        {isHistoryPanelOpen && (
-          <aside className="hidden w-[250px] shrink-0 flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-sm md:flex">
-            <div className="border-b border-zinc-800 px-3 py-3">
-              <h2 className="text-sm font-medium text-zinc-100">Session History</h2>
-              <p className="mt-0.5 text-xs text-zinc-400">
-                {sessionHistory.length + (connectionStatus === "connected" && conversationId ? 1 : 0)} sessions
-              </p>
-            </div>
-            <div className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
-              {connectionStatus === "connected" && conversationId && (
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setViewingSessionId(null)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setViewingSessionId(null) }}
-                  className={cn(
-                    "w-full cursor-pointer rounded-lg px-3 py-2 text-left transition-colors",
-                    !viewingSessionId
-                      ? "border border-emerald-500/30 bg-emerald-500/15"
-                      : "border border-transparent hover:bg-zinc-900"
-                  )}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-[11px] text-zinc-300">{truncateConversationId(conversationId)}</span>
-                    <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                      Active
-                    </span>
-                  </div>
-                  <p className="mt-1 text-[11px] text-zinc-400">
-                    Started {sessionStartedAt ? new Date(sessionStartedAt).toLocaleTimeString("en-GB", { hour12: false }) : "—"}
+        {isHistorySidebarOpen && (
+          <aside className="bg-card w-[250px] shrink-0 overflow-hidden rounded-xl border shadow-sm">
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="border-b px-3 py-3">
+                <h2 className="text-sm font-medium">Session History</h2>
+                <p className="text-muted-foreground mt-0.5 text-xs">
+                  {sessionHistory.length} session
+                  {sessionHistory.length === 1 ? "" : "s"} (in memory)
+                </p>
+              </div>
+
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
+                {orderedSessionHistory.length === 0 ? (
+                  <p className="text-muted-foreground px-1 py-3 text-xs">
+                    No connected sessions yet.
                   </p>
-                  <p className="mt-0.5 text-[11px] text-zinc-500">
-                    {formatSessionDuration(sessionDurationSeconds)}
-                  </p>
-                </div>
-              )}
-              {[...sessionHistory].reverse().map(session => (
-                <div
-                  key={session.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setViewingSessionId(session.conversationId)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setViewingSessionId(session.conversationId) }}
-                  className={cn(
-                    "w-full cursor-pointer rounded-lg px-3 py-2 text-left transition-colors",
-                    viewingSessionId === session.conversationId
-                      ? "border border-zinc-700 bg-zinc-800"
-                      : "border border-transparent hover:bg-zinc-900"
-                  )}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-[11px] text-zinc-300">{truncateConversationId(session.conversationId)}</span>
-                    <span className="text-[10px] text-zinc-500">Ended</span>
-                  </div>
-                  {editingLabelId === session.conversationId ? (
-                    <input
-                      type="text"
-                      autoFocus
-                      defaultValue={session.label}
-                      onBlur={(e) => handleRenameSession(session.conversationId, e.target.value)}
-                      onKeyDown={(e) => {
-                        e.stopPropagation()
-                        if (e.key === "Enter") handleRenameSession(session.conversationId, e.currentTarget.value)
-                        if (e.key === "Escape") setEditingLabelId(null)
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                      className="mt-1 w-full rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-[11px] text-zinc-200 outline-none focus:border-zinc-500"
-                      placeholder="Add label..."
-                    />
-                  ) : (
-                    <p
-                      className="mt-1 cursor-pointer truncate text-[11px] text-zinc-400 hover:text-zinc-300"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setEditingLabelId(session.conversationId)
-                      }}
-                      title="Click to rename"
-                    >
-                      {session.label || "Click to add label..."}
-                    </p>
-                  )}
-                  <p className="mt-0.5 text-[11px] text-zinc-500">
-                    {session.startTimeFormatted} · {formatSessionDuration(session.durationSeconds)}
-                  </p>
-                </div>
-              ))}
-              {sessionHistory.length === 0 && connectionStatus !== "connected" && (
-                <p className="px-2 py-4 text-center text-xs text-zinc-500">No sessions yet</p>
-              )}
+                ) : (
+                  orderedSessionHistory.map((session) => {
+                    const isActive =
+                      session.endedAt === null &&
+                      session.conversationId === activeSessionId
+                    const isEnded = session.endedAt !== null
+                    const isSelected = viewedSessionId === session.conversationId
+                    const duration = session.endedAt !== null
+                      ? session.durationSeconds ??
+                        Math.max(
+                          0,
+                          Math.floor((session.endedAt - session.startedAt) / 1000)
+                        )
+                      : 0
+                    const displayLabel = session.label.trim()
+
+                    return (
+                      <div
+                        key={session.conversationId}
+                        role={isEnded ? "button" : undefined}
+                        tabIndex={isEnded ? 0 : undefined}
+                        onClick={() => {
+                          if (isEnded) {
+                            handleViewHistoricalSession(session)
+                          }
+                        }}
+                        onKeyDown={(event) => {
+                          if (!isEnded) return
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault()
+                            handleViewHistoricalSession(session)
+                          }
+                        }}
+                        className={cn(
+                          "rounded-md border px-2 py-2 transition-colors",
+                          isEnded
+                            ? "cursor-pointer hover:border-zinc-500/70 hover:bg-zinc-500/5"
+                            : "border-emerald-500/50 bg-emerald-500/5",
+                          isActive && "border-emerald-500/70 bg-emerald-500/10",
+                          isSelected && "border-amber-500/70 bg-amber-500/10"
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="font-mono text-[11px]">
+                            {truncateConversationId(session.conversationId)}
+                          </p>
+                          <span
+                            className={cn(
+                              "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                              isActive
+                                ? "bg-emerald-500/20 text-emerald-300"
+                                : "bg-zinc-500/20 text-zinc-300"
+                            )}
+                          >
+                            {isActive ? "Active" : "Ended"}
+                          </span>
+                        </div>
+
+                        <p className="text-muted-foreground mt-1 text-[11px]">
+                          Start: {formatSessionStartTime(session.startedAt)}
+                        </p>
+                        {isEnded && (
+                          <p className="text-muted-foreground text-[11px]">
+                            Duration: {formatSessionDuration(duration)}
+                          </p>
+                        )}
+
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          <p
+                            className={cn(
+                              "truncate text-xs",
+                              displayLabel
+                                ? "text-foreground"
+                                : "text-muted-foreground italic"
+                            )}
+                            title={displayLabel || "No label"}
+                          >
+                            {displayLabel || "No label"}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              handleRenameHistorySession(session)
+                            }}
+                            className="rounded border border-zinc-700 px-1.5 py-0.5 text-[10px] transition-colors hover:bg-zinc-700/40"
+                            title="Rename session label"
+                          >
+                            Rename
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
             </div>
           </aside>
         )}
-        <div className="flex min-w-0 flex-1 flex-col gap-4">
-        <header className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-zinc-100 shadow-sm">
-          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-xs sm:text-sm">
-            <div className="flex min-w-0 items-center gap-2">
+
+        <div className="flex min-h-0 flex-1 flex-col gap-4">
+          <header className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-zinc-100 shadow-sm">
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-xs sm:text-sm">
+              <div className="flex min-w-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsHistorySidebarOpen((open) => !open)}
+                  className={cn(
+                    copyButtonClassName,
+                    isHistorySidebarOpen && "bg-zinc-800"
+                  )}
+                  title={
+                    isHistorySidebarOpen
+                      ? "Hide conversation history"
+                      : "Show conversation history"
+                  }
+                  aria-label={
+                    isHistorySidebarOpen
+                      ? "Hide conversation history"
+                      : "Show conversation history"
+                  }
+                >
+                  <Clock3 className="h-3.5 w-3.5 text-zinc-300" />
+                  <span className="hidden sm:inline">History</span>
+                </button>
+
+                <div className="min-w-0 truncate">
+                  <span className="text-zinc-400">Node:</span>{" "}
+                  <span className="font-medium">{activeNode}</span>
+                </div>
+              </div>
+
               <button
                 type="button"
-                onClick={() => setIsHistoryPanelOpen(prev => !prev)}
+                onClick={handleCopyConversationId}
+                disabled={!conversationId}
                 className={cn(
                   copyButtonClassName,
-                  isHistoryPanelOpen && "bg-zinc-800"
+                  conversationId ? "" : "cursor-not-allowed opacity-60"
                 )}
-                title={isHistoryPanelOpen ? "Close session history" : "Open session history"}
+                title={
+                  conversationId
+                    ? "Click to copy conversation ID"
+                    : "Conversation ID not available yet"
+                }
               >
-                <Clock className="h-3.5 w-3.5 text-zinc-300" />
-              </button>
-              <span className="truncate">
-                <span className="text-zinc-400">Node:</span>{" "}
-                <span className="font-medium">{activeNode}</span>
-              </span>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleCopyConversationId}
-              disabled={!conversationId}
-              className={cn(
-                copyButtonClassName,
-                conversationId ? "" : "cursor-not-allowed opacity-60"
-              )}
-              title={
-                conversationId
-                  ? "Click to copy conversation ID"
-                  : "Conversation ID not available yet"
-              }
-            >
-              {copiedConversationId ? (
-                <Check className="h-3.5 w-3.5 text-emerald-400" />
-              ) : (
-                <Copy className="h-3.5 w-3.5 text-zinc-400" />
-              )}
-              <span>
-                {conversationId ? truncateConversationId(conversationId) : "—"}
-              </span>
-            </button>
-
-            <div className="flex items-center justify-end gap-2">
-              <span className="font-mono text-xs text-zinc-300">
-                {formatSessionDuration(sessionDurationSeconds)}
-              </span>
-              <button
-                type="button"
-                onClick={handleNewSession}
-                className={copyButtonClassName}
-                title="Start a brand-new conversation session"
-              >
-                <RotateCcw className="h-3.5 w-3.5 text-zinc-300" />
-                <span className="hidden sm:inline">New Session</span>
-              </button>
-              <span
-                className={cn(
-                  "inline-block h-2.5 w-2.5 rounded-full",
-                  statusDotClassMap[connectionStatus]
+                {copiedConversationId ? (
+                  <Check className="h-3.5 w-3.5 text-emerald-400" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5 text-zinc-400" />
                 )}
-              />
-              <span className="capitalize">{connectionStatus}</span>
-              {isAgentSpeaking && (
-                <span className="animate-pulse rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] text-emerald-300">
-                  Speaking...
+                <span>
+                  {conversationId ? truncateConversationId(conversationId) : "—"}
                 </span>
-              )}
-            </div>
-          </div>
-        </header>
+              </button>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4 md:flex-row md:gap-6">
-          <section className="flex min-h-0 w-full flex-col md:w-[70%]">
-
-          <div className="bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border shadow-sm">
-            <div className="border-b px-4 py-3">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <h2 className="text-sm font-medium">{viewingSession ? "Session Transcript" : "Live Transcript"}</h2>
-                  <p className="text-muted-foreground mt-0.5 text-xs">
-                    {displayMessages.length} messages
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleToggleTranscriptSearch}
-                    className={copyButtonClassName}
-                    title={
-                      isTranscriptSearchOpen
-                        ? "Close transcript search (Esc)"
-                        : "Search transcript (Ctrl/Cmd+F)"
-                    }
-                    aria-label={
-                      isTranscriptSearchOpen
-                        ? "Close transcript search"
-                        : "Search transcript"
-                    }
-                  >
-                    <Search className={cn("h-3.5 w-3.5", isTranscriptSearchOpen ? "text-emerald-400" : "text-zinc-400")} />
-                    <span className="hidden sm:inline">Search</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDownloadTranscript}
-                    disabled={displayMessages.length === 0}
-                    className={copyButtonClassName}
-                    title={
-                      displayMessages.length > 0
-                        ? "Download full transcript as Markdown"
-                        : "No transcript messages to download"
-                    }
-                  >
-                    <Download className="h-3.5 w-3.5 text-zinc-400" />
-                    <span>Download</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCopyTranscript}
-                    disabled={displayMessages.length === 0}
-                    className={copyButtonClassName}
-                    title={
-                      displayMessages.length > 0
-                        ? "Copy full transcript"
-                        : "No transcript messages to copy"
-                    }
-                  >
-                    {copiedTranscript ? (
-                      <Check className="h-3.5 w-3.5 text-emerald-400" />
-                    ) : (
-                      <Copy className="h-3.5 w-3.5 text-zinc-400" />
-                    )}
-                    <span>{copiedTranscript ? "Copied" : "Copy"}</span>
-                  </button>
-                </div>
-              </div>
-
-              </div>
-
-            {isTranscriptSearchOpen && (
-              <div
-                className="flex items-center gap-2 border-b px-4 py-2"
-                data-transcript-search="true"
-              >
-                <Search className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
-                <input
-                  ref={transcriptSearchInputRef}
-                  type="text"
-                  value={transcriptSearchQuery}
-                  onChange={(event) => {
-                    const nextQuery = event.target.value
-                    setTranscriptSearchQuery(nextQuery)
-                    setActiveTranscriptMatchIndex(
-                      countTranscriptMatches(displayMessages, nextQuery) > 0 ? 0 : -1
-                    )
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") {
-                      event.preventDefault()
-                      closeTranscriptSearch()
-                    } else if (event.key === "Enter") {
-                      event.preventDefault()
-                      navigateTranscriptMatches(event.shiftKey ? -1 : 1)
-                    }
-                  }}
-                  placeholder="Search transcript..."
-                  className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-500"
+              <div className="flex items-center justify-end gap-2">
+                <span className="font-mono text-xs text-zinc-300">
+                  {formatSessionDuration(sessionDurationSeconds)}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleNewSession}
+                  className={copyButtonClassName}
+                  title="Start a brand-new conversation session"
+                >
+                  <RotateCcw className="h-3.5 w-3.5 text-zinc-300" />
+                  <span className="hidden sm:inline">New Session</span>
+                </button>
+                <span
+                  className={cn(
+                    "inline-block h-2.5 w-2.5 rounded-full",
+                    statusDotClassMap[connectionStatus]
+                  )}
                 />
-
-                <span className="text-muted-foreground shrink-0 font-mono text-xs">
-                  {transcriptSearchQuery.trim().length === 0
-                    ? ""
-                    : transcriptMatchCount === 0
-                      ? "No matches"
-                      : `${activeTranscriptMatchDisplayIndex} of ${transcriptMatchCount} matches`}
-                </span>
-
-                <div className="flex items-center gap-0.5">
-                  <button
-                    type="button"
-                    onClick={() => navigateTranscriptMatches(-1)}
-                    disabled={
-                      transcriptSearchQuery.trim().length === 0 ||
-                      transcriptMatchCount === 0
-                    }
-                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-40"
-                    title="Previous match (Shift+Enter)"
-                  >
-                    <ArrowUp className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => navigateTranscriptMatches(1)}
-                    disabled={
-                      transcriptSearchQuery.trim().length === 0 ||
-                      transcriptMatchCount === 0
-                    }
-                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-40"
-                    title="Next match (Enter)"
-                  >
-                    <ArrowDown className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={closeTranscriptSearch}
-                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
-                    title="Close search (Escape)"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div
-              ref={transcriptRef}
-              className="flex-1 space-y-1 overflow-y-auto px-4 py-2"
-            >
-              {viewingSession && (
-                <div className="sticky top-0 z-10 mb-2 flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-950/80 px-4 py-2 backdrop-blur-sm">
-                  <span className="text-xs text-amber-200">
-                    Viewing session {truncateConversationId(viewingSession.conversationId)}
-                    {viewingSession.label ? ` — ${viewingSession.label}` : ""}
+                <span className="capitalize">{connectionStatus}</span>
+                {isAgentSpeaking && (
+                  <span className="animate-pulse rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] text-emerald-300">
+                    Speaking...
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => setViewingSessionId(null)}
-                    className="text-xs font-medium text-amber-300 hover:text-amber-100"
-                  >
-                    {connectionStatus === "connected" ? "Back to live" : "Dismiss"}
-                  </button>
-                </div>
-              )}
-              {displayMessages.length === 0 ? (
-                <div className="text-muted-foreground flex h-full items-center justify-center py-10 text-sm">
-                  {viewingSession ? "This session had no transcript messages." : "Start a conversation to see live transcript messages."}
-                </div>
-              ) : (
-                displayMessages.map((entry) => (
-                  <Message
-                    key={entry.id}
-                    from={entry.source === "user" ? "user" : "assistant"}
-                  >
-                    <MessageContent
-                      data-transcript-entry="true"
-                      variant={entry.source === "user" ? "contained" : "flat"}
-                      className={cn(
-                        "relative pr-9",
-                        entry.source === "ai" && "max-w-[90%]",
-                        entry.source === "structured" &&
-                          "max-w-[95%] border-l-2 border-sky-500/60 bg-sky-500/10 pl-3"
-                      )}
-                    >
+                )}
+              </div>
+            </div>
+          </header>
+
+          <div className="flex min-h-0 flex-1 flex-col gap-4 md:flex-row md:gap-6">
+            <section className="flex min-h-0 w-full flex-col md:w-[70%]">
+              <div className="bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border shadow-sm">
+                <div className="border-b px-4 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <h2 className="text-sm font-medium">
+                        {viewingCachedSession ? "Cached Transcript" : "Live Transcript"}
+                      </h2>
+                      <p className="text-muted-foreground mt-0.5 text-xs">
+                        {visibleTranscriptMessages.length} messages
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          void handleCopyMessage(entry)
-                        }}
-                        className={cn(
-                          "absolute top-2 right-2 inline-flex h-6 w-6 items-center justify-center rounded-md border border-zinc-800 bg-zinc-950/90 text-zinc-100 opacity-0 transition-opacity",
-                          "group-hover:opacity-100 focus-visible:opacity-100"
-                        )}
+                        onClick={handleToggleTranscriptSearch}
+                        className={copyButtonClassName}
                         title={
-                          copiedMessageId === entry.id
-                            ? "Copied"
-                            : "Copy message"
+                          isTranscriptSearchOpen
+                            ? "Close transcript search (Esc)"
+                            : "Search transcript (Ctrl/Cmd+F)"
                         }
                         aria-label={
-                          copiedMessageId === entry.id
-                            ? "Message copied"
-                            : "Copy message"
+                          isTranscriptSearchOpen
+                            ? "Close transcript search"
+                            : "Search transcript"
                         }
                       >
-                        {copiedMessageId === entry.id ? (
+                        <Search className="h-3.5 w-3.5 text-zinc-400" />
+                        <span className="hidden sm:inline">Search</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDownloadTranscript}
+                        disabled={visibleTranscriptMessages.length === 0}
+                        className={copyButtonClassName}
+                        title={
+                          visibleTranscriptMessages.length > 0
+                            ? "Download full transcript as Markdown"
+                            : "No transcript messages to download"
+                        }
+                      >
+                        <Download className="h-3.5 w-3.5 text-zinc-400" />
+                        <span>Download</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCopyTranscript}
+                        disabled={visibleTranscriptMessages.length === 0}
+                        className={copyButtonClassName}
+                        title={
+                          visibleTranscriptMessages.length > 0
+                            ? "Copy full transcript"
+                            : "No transcript messages to copy"
+                        }
+                      >
+                        {copiedTranscript ? (
                           <Check className="h-3.5 w-3.5 text-emerald-400" />
                         ) : (
-                          <Copy className="h-3.5 w-3.5 text-zinc-300" />
+                          <Copy className="h-3.5 w-3.5 text-zinc-400" />
                         )}
+                        <span>{copiedTranscript ? "Copied" : "Copy"}</span>
                       </button>
+                    </div>
+                  </div>
 
-                      <p
-                        className={cn(
-                          "mb-1 font-mono text-[11px]",
-                          entry.source === "user"
-                            ? "text-primary-foreground/70"
-                            : entry.source === "structured"
-                              ? "text-sky-300/80"
-                              : "text-muted-foreground"
-                        )}
-                      >
-                        [{entry.timestamp}]
-                      </p>
-
-                      {entry.source === "structured" ? (
-                        <>
-                          {entry.label && (
-                            <p className="mb-1 text-xs font-semibold tracking-wide text-sky-300">
-                              {entry.label}
-                            </p>
-                          )}
-                          <Response>{entry.message}</Response>
-                        </>
-                      ) : entry.source === "ai" ? (
-                        <Response>{entry.message}</Response>
-                      ) : (
-                        <p className="whitespace-pre-wrap">{entry.message}</p>
+                  {cachedViewedSession && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs">
+                      <span className="font-medium text-amber-200">
+                        Viewing session{" "}
+                        {truncateConversationId(cachedViewedSession.conversationId)} —{" "}
+                        {cachedViewedSession.label.trim() || "No label"}
+                      </span>
+                      {hasActiveSession && (
+                        <button
+                          type="button"
+                          onClick={handleBackToLiveTranscript}
+                          className="rounded border border-amber-500/60 px-2 py-1 text-[11px] transition-colors hover:bg-amber-500/20"
+                        >
+                          Back to live
+                        </button>
                       )}
-                    </MessageContent>
-                  </Message>
-                ))
-              )}
-            </div>
-          </div>
+                    </div>
+                  )}
 
-          <div className="mt-4 flex flex-col gap-3">
-            <ConversationBar
-              agentId={process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID}
-              getSignedUrl={getSignedUrl}
-              inputDeviceId={selectedMicId || undefined}
-              audioInputMode={audioInputMode}
-              forceDisconnectSignal={audioModeRestartSignal}
-              newSessionSignal={newSessionSignal}
-              clientTools={clientTools}
-              onSystemAudioCaptureChange={setSystemAudioCaptureLive}
-              onConnect={() => {
-                console.log("[JRVS] onConnect")
-              }}
-              onDisconnect={() => {
-                console.log("[JRVS] onDisconnect")
-              }}
-              onConnectionStatusChange={handleConnectionStatusChange}
-              onSpeakingChange={setIsAgentSpeaking}
-              onConversationId={setConversationId}
-              onMessage={handleConversationMessage}
-              onDebug={handleConversationDebug}
-              onSendMessage={handleUserTextMessage}
-              onError={handleConversationError}
-            />
+                  {isTranscriptSearchOpen && (
+                    <div
+                      className="mt-3 flex flex-wrap items-center gap-2"
+                      data-transcript-search="true"
+                    >
+                      <div className="relative min-w-[220px] flex-1">
+                        <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
+                        <input
+                          ref={transcriptSearchInputRef}
+                          type="text"
+                          value={transcriptSearchQuery}
+                          onChange={(event) => {
+                            const nextQuery = event.target.value
+                            setTranscriptSearchQuery(nextQuery)
+                            setActiveTranscriptMatchIndex(
+                              countTranscriptMatches(
+                                visibleTranscriptMessages,
+                                nextQuery
+                              ) > 0
+                                ? 0
+                                : -1
+                            )
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault()
+                              navigateTranscriptMatches(event.shiftKey ? -1 : 1)
+                            }
+                          }}
+                          placeholder="Search transcript..."
+                          className="bg-background h-8 w-full rounded-md border border-zinc-700 pr-2 pl-8 text-xs outline-none transition-colors focus:border-zinc-500"
+                        />
+                      </div>
 
-            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="bg-muted inline-flex rounded-md p-1">
-                  {(
-                    ["mic", "device", "mixed"] as AudioInputMode[]
-                  ).map((mode) => {
-                    const unsupported =
-                      mode !== "mic" && !systemAudioCaptureSupported
-                    return (
+                      <span className="text-muted-foreground min-w-[120px] text-xs">
+                        {transcriptSearchQuery.trim().length === 0
+                          ? "Type to search"
+                          : transcriptMatchCount === 0
+                            ? "No matches"
+                            : `${activeTranscriptMatchDisplayIndex} of ${transcriptMatchCount} matches`}
+                      </span>
+
                       <button
-                        key={mode}
                         type="button"
-                        onClick={() => handleAudioInputModeChange(mode)}
-                        disabled={unsupported}
-                        title={
-                          unsupported
-                            ? "System audio capture not supported in this browser."
-                            : audioModeLabelMap[mode]
+                        onClick={() => navigateTranscriptMatches(-1)}
+                        disabled={
+                          transcriptSearchQuery.trim().length === 0 ||
+                          transcriptMatchCount === 0
                         }
-                        className={cn(
-                          "rounded px-3 py-1.5 text-sm transition-colors",
-                          audioInputMode === mode
-                            ? "bg-background text-foreground shadow-sm"
-                            : "text-muted-foreground",
-                          unsupported && "cursor-not-allowed opacity-50"
-                        )}
+                        className={copyButtonClassName}
+                        title="Previous match (Shift+Enter)"
                       >
-                        {audioModeLabelMap[mode]}
+                        <ArrowUp className="h-3.5 w-3.5 text-zinc-300" />
                       </button>
-                    )
-                  })}
+                      <button
+                        type="button"
+                        onClick={() => navigateTranscriptMatches(1)}
+                        disabled={
+                          transcriptSearchQuery.trim().length === 0 ||
+                          transcriptMatchCount === 0
+                        }
+                        className={copyButtonClassName}
+                        title="Next match (Enter)"
+                      >
+                        <ArrowDown className="h-3.5 w-3.5 text-zinc-300" />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
-                {systemAudioCaptureLive &&
-                  (audioInputMode === "device" || audioInputMode === "mixed") && (
-                    <span className="rounded-full border border-emerald-700/50 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-300">
-                      System audio capture live
-                    </span>
+                <div
+                  ref={transcriptRef}
+                  className="flex-1 space-y-1 overflow-y-auto px-4 py-2"
+                >
+                  {visibleTranscriptMessages.length === 0 ? (
+                    <div className="text-muted-foreground flex h-full items-center justify-center py-10 text-sm">
+                      {viewingCachedSession
+                        ? "No transcript cached for this session."
+                        : "Start a conversation to see live transcript messages."}
+                    </div>
+                  ) : (
+                    visibleTranscriptMessages.map((entry) => (
+                      <Message
+                        key={entry.id}
+                        from={entry.source === "user" ? "user" : "assistant"}
+                      >
+                        <MessageContent
+                          data-transcript-entry="true"
+                          variant={entry.source === "user" ? "contained" : "flat"}
+                          className={cn(
+                            "relative pr-9",
+                            entry.source === "ai" && "max-w-[90%]",
+                            entry.source === "structured" &&
+                              "max-w-[95%] border-l-2 border-sky-500/60 bg-sky-500/10 pl-3"
+                          )}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void handleCopyMessage(entry)
+                            }}
+                            className={cn(
+                              "absolute top-2 right-2 inline-flex h-6 w-6 items-center justify-center rounded-md border border-zinc-800 bg-zinc-950/90 text-zinc-100 opacity-0 transition-opacity",
+                              "group-hover:opacity-100 focus-visible:opacity-100"
+                            )}
+                            title={
+                              copiedMessageId === entry.id ? "Copied" : "Copy message"
+                            }
+                            aria-label={
+                              copiedMessageId === entry.id
+                                ? "Message copied"
+                                : "Copy message"
+                            }
+                          >
+                            {copiedMessageId === entry.id ? (
+                              <Check className="h-3.5 w-3.5 text-emerald-400" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5 text-zinc-300" />
+                            )}
+                          </button>
+
+                          <p
+                            className={cn(
+                              "mb-1 font-mono text-[11px]",
+                              entry.source === "user"
+                                ? "text-primary-foreground/70"
+                                : entry.source === "structured"
+                                  ? "text-sky-300/80"
+                                  : "text-muted-foreground"
+                            )}
+                          >
+                            [{entry.timestamp}]
+                          </p>
+
+                          {entry.source === "structured" ? (
+                            <>
+                              {entry.label && (
+                                <p className="mb-1 text-xs font-semibold tracking-wide text-sky-300">
+                                  {entry.label}
+                                </p>
+                              )}
+                              <Response>{entry.message}</Response>
+                            </>
+                          ) : entry.source === "ai" ? (
+                            <Response>{entry.message}</Response>
+                          ) : (
+                            <p className="whitespace-pre-wrap">{entry.message}</p>
+                          )}
+                        </MessageContent>
+                      </Message>
+                    ))
                   )}
+                </div>
               </div>
 
-              <MicSelector
-                value={selectedMicId}
-                onValueChange={(deviceId) => setSelectedMicId(deviceId)}
-              />
-            </div>
+              <div className="mt-4 flex flex-col gap-3">
+                <ConversationBar
+                  agentId={process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID}
+                  getSignedUrl={getSignedUrl}
+                  inputDeviceId={selectedMicId || undefined}
+                  audioInputMode={audioInputMode}
+                  forceDisconnectSignal={audioModeRestartSignal}
+                  newSessionSignal={newSessionSignal}
+                  clientTools={clientTools}
+                  onSystemAudioCaptureChange={setSystemAudioCaptureLive}
+                  onConnect={() => {
+                    console.log("[JRVS] onConnect")
+                  }}
+                  onDisconnect={() => {
+                    console.log("[JRVS] onDisconnect")
+                  }}
+                  onConnectionStatusChange={handleConnectionStatusChange}
+                  onSpeakingChange={setIsAgentSpeaking}
+                  onConversationId={handleConversationIdChange}
+                  onMessage={handleConversationMessage}
+                  onDebug={handleConversationDebug}
+                  onSendMessage={handleUserTextMessage}
+                  onError={handleConversationError}
+                />
+
+                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="bg-muted inline-flex rounded-md p-1">
+                      {(
+                        ["mic", "device", "mixed"] as AudioInputMode[]
+                      ).map((mode) => {
+                        const unsupported =
+                          mode !== "mic" && !systemAudioCaptureSupported
+                        return (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => handleAudioInputModeChange(mode)}
+                            disabled={unsupported}
+                            title={
+                              unsupported
+                                ? "System audio capture not supported in this browser."
+                                : audioModeLabelMap[mode]
+                            }
+                            className={cn(
+                              "rounded px-3 py-1.5 text-sm transition-colors",
+                              audioInputMode === mode
+                                ? "bg-background text-foreground shadow-sm"
+                                : "text-muted-foreground",
+                              unsupported && "cursor-not-allowed opacity-50"
+                            )}
+                          >
+                            {audioModeLabelMap[mode]}
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    {systemAudioCaptureLive &&
+                      (audioInputMode === "device" ||
+                        audioInputMode === "mixed") && (
+                        <span className="rounded-full border border-emerald-700/50 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-300">
+                          System audio capture live
+                        </span>
+                      )}
+                  </div>
+
+                  <MicSelector
+                    value={selectedMicId}
+                    onValueChange={(deviceId) => setSelectedMicId(deviceId)}
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 min-h-0 md:hidden">
+                <div className="bg-muted inline-flex rounded-md p-1">
+                  <button
+                    type="button"
+                    onClick={() => setMobilePanelTab("tools")}
+                    className={cn(
+                      "rounded px-3 py-1.5 text-sm",
+                      mobilePanelTab === "tools"
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground"
+                    )}
+                  >
+                    Tools
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMobilePanelTab("errors")}
+                    className={cn(
+                      "rounded px-3 py-1.5 text-sm",
+                      mobilePanelTab === "errors"
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground"
+                    )}
+                  >
+                    Errors
+                  </button>
+                </div>
+
+                <div className="mt-3 h-[260px] min-h-0">
+                  {mobilePanelTab === "tools"
+                    ? renderToolLogPanel()
+                    : renderErrorPanel()}
+                </div>
+              </div>
+            </section>
+
+            <aside className="hidden min-h-0 md:flex md:w-[30%] md:flex-col md:gap-4">
+              <div className="min-h-0 flex-[3]">{renderToolLogPanel()}</div>
+              <div className="min-h-0 flex-[2]">{renderErrorPanel()}</div>
+            </aside>
           </div>
-
-          <div className="mt-4 min-h-0 md:hidden">
-            <div className="bg-muted inline-flex rounded-md p-1">
-              <button
-                type="button"
-                onClick={() => setMobilePanelTab("tools")}
-                className={cn(
-                  "rounded px-3 py-1.5 text-sm",
-                  mobilePanelTab === "tools"
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground"
-                )}
-              >
-                Tools
-              </button>
-              <button
-                type="button"
-                onClick={() => setMobilePanelTab("errors")}
-                className={cn(
-                  "rounded px-3 py-1.5 text-sm",
-                  mobilePanelTab === "errors"
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground"
-                )}
-              >
-                Errors
-              </button>
-            </div>
-
-            <div className="mt-3 h-[260px] min-h-0">
-              {mobilePanelTab === "tools"
-                ? renderToolLogPanel()
-                : renderErrorPanel()}
-            </div>
-          </div>
-        </section>
-
-        <aside className="hidden min-h-0 md:flex md:w-[30%] md:flex-col md:gap-4">
-          <div className="min-h-0 flex-[3]">{renderToolLogPanel()}</div>
-          <div className="min-h-0 flex-[2]">{renderErrorPanel()}</div>
-        </aside>
-      </div>
-      </div>
+        </div>
       </div>
     </main>
   )
