@@ -15,38 +15,38 @@ import {
 import { Response } from "@/components/ui/response"
 import { cn } from "@/lib/utils"
 import type {
-  ConfigSnapshotChunk,
-  ConfigSnapshotComponentType,
-  ConfigSnapshotSource,
-} from "@/lib/config-snapshot"
+  mjrvs_config_snapshot_chunk,
+  mjrvs_config_snapshot_component_type,
+  mjrvs_config_snapshot_source,
+} from "@/lib/mjrvs_config_snapshot"
 
-type ConfigInspectorPanelProps = {
-  isOpen: boolean
-  onClose: () => void
+type mjrvs_config_inspector_panel_props = {
+  is_open: boolean
+  on_close: () => void
 }
 
-type SnapshotApiResponse = {
+type mjrvs_snapshot_api_response = {
   agent_id: string | null
   snapshot_at: string | null
-  chunks: ConfigSnapshotChunk[]
-  source: ConfigSnapshotSource
+  chunks: mjrvs_config_snapshot_chunk[]
+  source?: mjrvs_config_snapshot_source
 }
 
-type ViewerLanguage = "json" | "text"
+type mjrvs_viewer_language = "json" | "text"
 
-type GroupDefinition = {
-  type: ConfigSnapshotComponentType
+type mjrvs_group_definition = {
+  type: mjrvs_config_snapshot_component_type
   label: string
 }
 
-type TransferEdge = {
-  edgeId: string
+type mjrvs_transfer_edge = {
+  edge_id: string
   source: string
   target: string
-  forwardCondition: string
+  forward_condition: string
 }
 
-const groupDefinitions: GroupDefinition[] = [
+const mjrvs_group_definitions: mjrvs_group_definition[] = [
   { type: "root_prompt", label: "Root Prompt" },
   { type: "node_prompt", label: "Nodes" },
   { type: "edge_condition", label: "Edges" },
@@ -54,7 +54,10 @@ const groupDefinitions: GroupDefinition[] = [
   { type: "global_config", label: "Global Config" },
 ]
 
-const initialGroupExpansionState: Record<ConfigSnapshotComponentType, boolean> = {
+const mjrvs_initial_group_expansion_state: Record<
+  mjrvs_config_snapshot_component_type,
+  boolean
+> = {
   root_prompt: true,
   node_prompt: true,
   edge_condition: true,
@@ -62,13 +65,13 @@ const initialGroupExpansionState: Record<ConfigSnapshotComponentType, boolean> =
   global_config: true,
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
+const mjrvs_is_record = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
-const readString = (value: unknown): string | null =>
+const mjrvs_read_string = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : null
 
-const stringifyContent = (value: unknown): string => {
+const mjrvs_stringify_content = (value: unknown): string => {
   if (typeof value === "string") return value
 
   try {
@@ -78,59 +81,62 @@ const stringifyContent = (value: unknown): string => {
   }
 }
 
-const summarizeContent = (chunk: ConfigSnapshotChunk): string => {
+const mjrvs_summarize_content = (chunk: mjrvs_config_snapshot_chunk): string => {
   const content = chunk.content
 
-  if (isRecord(content)) {
+  if (mjrvs_is_record(content)) {
     if (chunk.component_type === "node_prompt") {
-      const prompt = readString(content.additional_prompt)
-      if (prompt) return prompt
+      const prompt_text = mjrvs_read_string(content.additional_prompt)
+      if (prompt_text) return prompt_text
     }
 
     if (chunk.component_type === "root_prompt") {
-      const prompt = readString(content.prompt)
-      if (prompt) return prompt
+      const prompt_text = mjrvs_read_string(content.prompt)
+      if (prompt_text) return prompt_text
     }
 
     if (chunk.component_type === "edge_condition") {
-      const forward = readString(content.forward_condition)
-      if (forward) return `Forward: ${forward}`
+      const forward_text = mjrvs_read_string(content.forward_condition)
+      if (forward_text) return `Forward: ${forward_text}`
     }
   }
 
-  return stringifyContent(content).replace(/\s+/g, " ").trim()
+  return mjrvs_stringify_content(content).replace(/\s+/g, " ").trim()
 }
 
-const truncate = (value: string, maxLength = 100): string => {
-  if (value.length <= maxLength) return value
-  return `${value.slice(0, maxLength - 3)}...`
+const mjrvs_truncate = (value: string, max_length = 100): string => {
+  if (value.length <= max_length) return value
+  return `${value.slice(0, max_length - 3)}...`
 }
 
-const getChunkKey = (chunk: ConfigSnapshotChunk): string =>
+const mjrvs_get_chunk_key = (chunk: mjrvs_config_snapshot_chunk): string =>
   `${chunk.component_type}:${chunk.raw_id}`
 
-const getViewerContent = (
-  chunk: ConfigSnapshotChunk
-): { language: ViewerLanguage; value: string } => {
+const mjrvs_get_viewer_content = (
+  chunk: mjrvs_config_snapshot_chunk
+): { language: mjrvs_viewer_language; value: string } => {
   if (typeof chunk.content === "string") {
     return { language: "text", value: chunk.content }
   }
 
-  return { language: "json", value: stringifyContent(chunk.content) }
+  return { language: "json", value: mjrvs_stringify_content(chunk.content) }
 }
 
-const formatSnapshotTimestamp = (timestamp: string | null): string => {
+const mjrvs_format_snapshot_timestamp = (timestamp: string | null): string => {
   if (!timestamp) return "Not captured yet"
 
-  const parsed = new Date(timestamp)
-  if (Number.isNaN(parsed.getTime())) return timestamp
+  const parsed_date = new Date(timestamp)
+  if (Number.isNaN(parsed_date.getTime())) return timestamp
 
-  return parsed.toLocaleString("en-GB", {
+  return parsed_date.toLocaleString("en-GB", {
     hour12: false,
   })
 }
 
-const createEmptyGroups = (): Record<ConfigSnapshotComponentType, ConfigSnapshotChunk[]> => ({
+const mjrvs_create_empty_groups = (): Record<
+  mjrvs_config_snapshot_component_type,
+  mjrvs_config_snapshot_chunk[]
+> => ({
   root_prompt: [],
   node_prompt: [],
   edge_condition: [],
@@ -138,54 +144,59 @@ const createEmptyGroups = (): Record<ConfigSnapshotComponentType, ConfigSnapshot
   global_config: [],
 })
 
-const parseTransferEdge = (chunk: ConfigSnapshotChunk): TransferEdge | null => {
-  if (!isRecord(chunk.content)) return null
+const mjrvs_parse_transfer_edge = (
+  chunk: mjrvs_config_snapshot_chunk
+): mjrvs_transfer_edge | null => {
+  if (!mjrvs_is_record(chunk.content)) return null
 
   const source =
-    readString(chunk.content.source_node_name) ??
-    readString(chunk.content.source_node) ??
+    mjrvs_read_string(chunk.content.source_node_name) ??
+    mjrvs_read_string(chunk.content.source_node) ??
     null
   const target =
-    readString(chunk.content.target_node_name) ??
-    readString(chunk.content.target_node) ??
+    mjrvs_read_string(chunk.content.target_node_name) ??
+    mjrvs_read_string(chunk.content.target_node) ??
     null
 
   if (!source || !target) return null
 
   return {
-    edgeId: chunk.raw_id,
+    edge_id: chunk.raw_id,
     source,
     target,
-    forwardCondition: readString(chunk.content.forward_condition) ?? "(none)",
+    forward_condition: mjrvs_read_string(chunk.content.forward_condition) ?? "(none)",
   }
 }
 
-export function ConfigInspectorPanel({
-  isOpen,
-  onClose,
-}: ConfigInspectorPanelProps) {
-  const [chunks, setChunks] = useState<ConfigSnapshotChunk[]>([])
-  const [snapshotAt, setSnapshotAt] = useState<string | null>(null)
-  const [snapshotSource, setSnapshotSource] = useState<ConfigSnapshotSource>("live")
-  const [agentId, setAgentId] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [expandedGroups, setExpandedGroups] = useState(
-    initialGroupExpansionState
+export function Mjrvs_config_inspector_panel({
+  is_open,
+  on_close,
+}: mjrvs_config_inspector_panel_props) {
+  const [chunks, set_chunks] = useState<mjrvs_config_snapshot_chunk[]>([])
+  const [snapshot_at, set_snapshot_at] = useState<string | null>(null)
+  const [snapshot_source, set_snapshot_source] =
+    useState<mjrvs_config_snapshot_source>("live")
+  const [agent_id, set_agent_id] = useState<string | null>(null)
+  const [is_loading, set_is_loading] = useState(false)
+  const [error_message, set_error_message] = useState<string | null>(null)
+  const [expanded_groups, set_expanded_groups] = useState(
+    mjrvs_initial_group_expansion_state
   )
-  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({})
-  const [copiedChunkKey, setCopiedChunkKey] = useState<string | null>(null)
+  const [expanded_items, set_expanded_items] = useState<Record<string, boolean>>(
+    {}
+  )
+  const [copied_chunk_key, set_copied_chunk_key] = useState<string | null>(null)
 
-  const hasFetchedRef = useRef(false)
-  const itemRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const has_fetched_ref = useRef(false)
+  const item_refs = useRef<Record<string, HTMLDivElement | null>>({})
 
-  const groupedChunks = useMemo(() => {
-    const grouped = createEmptyGroups()
+  const grouped_chunks = useMemo(() => {
+    const grouped = mjrvs_create_empty_groups()
     chunks.forEach((chunk) => {
       grouped[chunk.component_type].push(chunk)
     })
 
-    groupDefinitions.forEach((group) => {
+    mjrvs_group_definitions.forEach((group) => {
       grouped[group.type].sort((left, right) =>
         left.component_id.localeCompare(right.component_id)
       )
@@ -194,234 +205,242 @@ export function ConfigInspectorPanel({
     return grouped
   }, [chunks])
 
-  const transferEdges = useMemo(
+  const transfer_edges = useMemo(
     () =>
-      groupedChunks.edge_condition
-        .map((chunk) => parseTransferEdge(chunk))
-        .filter((edge): edge is TransferEdge => Boolean(edge)),
-    [groupedChunks.edge_condition]
+      grouped_chunks.edge_condition
+        .map((chunk) => mjrvs_parse_transfer_edge(chunk))
+        .filter((edge): edge is mjrvs_transfer_edge => Boolean(edge)),
+    [grouped_chunks.edge_condition]
   )
 
-  const nodeChunkLookup = useMemo(() => {
+  const node_chunk_lookup = useMemo(() => {
     const lookup = new Map<string, string>()
-    groupedChunks.node_prompt.forEach((chunk) => {
-      lookup.set(chunk.component_id, getChunkKey(chunk))
+    grouped_chunks.node_prompt.forEach((chunk) => {
+      lookup.set(chunk.component_id, mjrvs_get_chunk_key(chunk))
     })
     return lookup
-  }, [groupedChunks.node_prompt])
+  }, [grouped_chunks.node_prompt])
 
-  const transferNodes = useMemo(() => {
+  const transfer_nodes = useMemo(() => {
     const names = new Set<string>()
 
-    groupedChunks.node_prompt.forEach((chunk) => {
+    grouped_chunks.node_prompt.forEach((chunk) => {
       names.add(chunk.component_id)
     })
-    transferEdges.forEach((edge) => {
+    transfer_edges.forEach((edge) => {
       names.add(edge.source)
       names.add(edge.target)
     })
 
     return Array.from(names).sort((left, right) => left.localeCompare(right))
-  }, [groupedChunks.node_prompt, transferEdges])
+  }, [grouped_chunks.node_prompt, transfer_edges])
 
-  const transferRows = useMemo(
+  const transfer_rows = useMemo(
     () =>
-      transferNodes.map((nodeName) => ({
-        nodeName,
-        outgoing: transferEdges.filter((edge) => edge.source === nodeName),
+      transfer_nodes.map((node_name) => ({
+        node_name,
+        outgoing: transfer_edges.filter((edge) => edge.source === node_name),
       })),
-    [transferEdges, transferNodes]
+    [transfer_edges, transfer_nodes]
   )
 
-  const fetchSnapshot = useCallback(async (refresh: boolean) => {
-    setIsLoading(true)
-    setErrorMessage(null)
+  const fetch_snapshot = useCallback(async (refresh: boolean) => {
+    set_is_loading(true)
+    set_error_message(null)
 
     try {
-      const url = refresh
-        ? "/api/agent-config/snapshot?refresh=1"
-        : "/api/agent-config/snapshot"
-      const response = await fetch(url, {
-        method: refresh ? "POST" : "GET",
+      const request_url = refresh
+        ? "/api/agent-config?refresh=1"
+        : "/api/agent-config"
+      const response = await fetch(request_url, {
+        method: "GET",
         cache: "no-store",
       })
 
-      const rawBody = await response.text()
-      const parsedBody: unknown = rawBody ? JSON.parse(rawBody) : {}
+      const raw_body = await response.text()
+      const parsed_body: unknown = raw_body ? JSON.parse(raw_body) : {}
 
       if (!response.ok) {
-        if (isRecord(parsedBody)) {
-          const error = readString(parsedBody.error)
-          const details = readString(parsedBody.details)
+        if (mjrvs_is_record(parsed_body)) {
+          const error_text = mjrvs_read_string(parsed_body.error)
+          const details_text = mjrvs_read_string(parsed_body.details)
           throw new Error(
-            details
-              ? `${error ?? "Snapshot request failed"}: ${details}`
-              : error ?? `Snapshot request failed (${response.status})`
+            details_text
+              ? `${error_text ?? "Snapshot request failed"}: ${details_text}`
+              : error_text ?? `Snapshot request failed (${response.status})`
           )
         }
 
         throw new Error(`Snapshot request failed (${response.status})`)
       }
 
-      if (!isRecord(parsedBody) || !Array.isArray(parsedBody.chunks)) {
+      if (!mjrvs_is_record(parsed_body) || !Array.isArray(parsed_body.chunks)) {
         throw new Error("Snapshot response did not include a chunks array")
       }
 
-      const snapshotResponse = parsedBody as Partial<SnapshotApiResponse>
-      setChunks(snapshotResponse.chunks ?? [])
-      setSnapshotAt(readString(snapshotResponse.snapshot_at))
-      setAgentId(readString(snapshotResponse.agent_id))
+      const snapshot_response = parsed_body as Partial<mjrvs_snapshot_api_response>
+      set_chunks(snapshot_response.chunks ?? [])
+      set_snapshot_at(mjrvs_read_string(snapshot_response.snapshot_at))
+      set_agent_id(mjrvs_read_string(snapshot_response.agent_id))
 
-      if (snapshotResponse.source === "cache" || snapshotResponse.source === "live") {
-        setSnapshotSource(snapshotResponse.source)
+      if (
+        snapshot_response.source === "cache" ||
+        snapshot_response.source === "live"
+      ) {
+        set_snapshot_source(snapshot_response.source)
+      } else if (refresh) {
+        set_snapshot_source("live")
       }
     } catch (error) {
       const details =
         error instanceof Error ? error.message : "Unknown snapshot fetch error"
-      setErrorMessage(details)
+      set_error_message(details)
     } finally {
-      setIsLoading(false)
+      set_is_loading(false)
     }
   }, [])
 
-  const handleRefresh = useCallback(() => {
-    void fetchSnapshot(true)
-  }, [fetchSnapshot])
+  const handle_refresh = useCallback(() => {
+    void fetch_snapshot(true)
+  }, [fetch_snapshot])
 
-  const handleToggleGroup = useCallback((type: ConfigSnapshotComponentType) => {
-    setExpandedGroups((previous) => ({
+  const handle_toggle_group = useCallback(
+    (type: mjrvs_config_snapshot_component_type) => {
+      set_expanded_groups((previous) => ({
+        ...previous,
+        [type]: !previous[type],
+      }))
+    },
+    []
+  )
+
+  const handle_toggle_item = useCallback((chunk_key: string) => {
+    set_expanded_items((previous) => ({
       ...previous,
-      [type]: !previous[type],
+      [chunk_key]: !previous[chunk_key],
     }))
   }, [])
 
-  const handleToggleItem = useCallback((chunkKey: string) => {
-    setExpandedItems((previous) => ({
-      ...previous,
-      [chunkKey]: !previous[chunkKey],
-    }))
-  }, [])
-
-  const handleCopyChunk = useCallback(async (chunk: ConfigSnapshotChunk) => {
-    const chunkKey = getChunkKey(chunk)
-    const { value } = getViewerContent(chunk)
+  const handle_copy_chunk = useCallback(async (chunk: mjrvs_config_snapshot_chunk) => {
+    const chunk_key = mjrvs_get_chunk_key(chunk)
+    const { value } = mjrvs_get_viewer_content(chunk)
 
     try {
       await navigator.clipboard.writeText(value)
-      setCopiedChunkKey(chunkKey)
+      set_copied_chunk_key(chunk_key)
     } catch (error) {
-      console.error("[ConfigInspector] copy failed", error)
+      console.error("[mjrvs_config_inspector] copy failed", error)
     }
   }, [])
 
-  const handleJumpToNode = useCallback(
-    (nodeName: string) => {
-      const targetChunkKey = nodeChunkLookup.get(nodeName)
-      if (!targetChunkKey) return
+  const handle_jump_to_node = useCallback(
+    (node_name: string) => {
+      const target_chunk_key = node_chunk_lookup.get(node_name)
+      if (!target_chunk_key) return
 
-      setExpandedGroups((previous) => ({
+      set_expanded_groups((previous) => ({
         ...previous,
         node_prompt: true,
       }))
-      setExpandedItems((previous) => ({
+      set_expanded_items((previous) => ({
         ...previous,
-        [targetChunkKey]: true,
+        [target_chunk_key]: true,
       }))
 
       window.setTimeout(() => {
-        itemRefs.current[targetChunkKey]?.scrollIntoView({
+        item_refs.current[target_chunk_key]?.scrollIntoView({
           block: "center",
           behavior: "smooth",
         })
       }, 50)
     },
-    [nodeChunkLookup]
+    [node_chunk_lookup]
   )
 
   useEffect(() => {
-    if (!isOpen) return
-    if (hasFetchedRef.current) return
+    if (!is_open) return
+    if (has_fetched_ref.current) return
 
-    hasFetchedRef.current = true
-    void fetchSnapshot(false)
-  }, [fetchSnapshot, isOpen])
+    has_fetched_ref.current = true
+    void fetch_snapshot(false)
+  }, [fetch_snapshot, is_open])
 
   useEffect(() => {
-    if (!copiedChunkKey) return
+    if (!copied_chunk_key) return
 
-    const timeoutId = window.setTimeout(() => {
-      setCopiedChunkKey(null)
+    const timeout_id = window.setTimeout(() => {
+      set_copied_chunk_key(null)
     }, 1200)
 
-    return () => window.clearTimeout(timeoutId)
-  }, [copiedChunkKey])
+    return () => window.clearTimeout(timeout_id)
+  }, [copied_chunk_key])
 
   useEffect(() => {
-    if (!isOpen) return
+    if (!is_open) return
 
-    const handleKeyDown = (event: KeyboardEvent) => {
+    const handle_key_down = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault()
-        onClose()
+        on_close()
       }
     }
 
-    window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [isOpen, onClose])
+    window.addEventListener("keydown", handle_key_down)
+    return () => window.removeEventListener("keydown", handle_key_down)
+  }, [is_open, on_close])
 
   return (
     <div
       className={cn(
         "fixed inset-0 z-50",
-        isOpen ? "pointer-events-auto" : "pointer-events-none"
+        is_open ? "pointer-events-auto" : "pointer-events-none"
       )}
-      aria-hidden={!isOpen}
+      aria-hidden={!is_open}
     >
       <button
         type="button"
-        onClick={onClose}
+        onClick={on_close}
         aria-label="Close Agent Config panel"
         className={cn(
           "absolute inset-0 bg-black/60 transition-opacity",
-          isOpen ? "opacity-100" : "opacity-0"
+          is_open ? "opacity-100" : "opacity-0"
         )}
       />
 
       <aside
         className={cn(
           "absolute top-0 right-0 flex h-full w-full max-w-3xl flex-col border-l border-zinc-800 bg-zinc-950 text-zinc-100 shadow-2xl transition-transform duration-200",
-          isOpen ? "translate-x-0" : "translate-x-full"
+          is_open ? "translate-x-0" : "translate-x-full"
         )}
       >
         <header className="flex items-start justify-between gap-4 border-b border-zinc-800 px-4 py-4">
           <div>
             <h2 className="text-base font-semibold">Agent Config</h2>
             <p className="mt-1 text-xs text-zinc-400">
-              Last snapshot: {formatSnapshotTimestamp(snapshotAt)}
+              Last snapshot: {mjrvs_format_snapshot_timestamp(snapshot_at)}
             </p>
             <p className="mt-1 text-xs text-zinc-500">
-              Source: {snapshotSource}
-              {agentId ? ` · Agent ${agentId}` : ""}
+              Source: {snapshot_source}
+              {agent_id ? ` · Agent ${agent_id}` : ""}
             </p>
           </div>
 
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={handleRefresh}
-              disabled={isLoading}
+              onClick={handle_refresh}
+              disabled={is_loading}
               className="inline-flex items-center gap-1 rounded-md border border-zinc-700 px-2 py-1 text-xs font-medium transition-colors hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <RefreshCcw
-                className={cn("h-3.5 w-3.5", isLoading && "animate-spin")}
+                className={cn("h-3.5 w-3.5", is_loading && "animate-spin")}
               />
-              <span>{isLoading ? "Refreshing..." : "Refresh Snapshot"}</span>
+              <span>{is_loading ? "Refreshing..." : "Refresh Snapshot"}</span>
             </button>
 
             <button
               type="button"
-              onClick={onClose}
+              onClick={on_close}
               className="inline-flex items-center rounded-md border border-zinc-700 p-1.5 transition-colors hover:bg-zinc-900"
               aria-label="Close Agent Config panel"
               title="Close"
@@ -433,14 +452,14 @@ export function ConfigInspectorPanel({
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
-            {errorMessage && (
+            {error_message && (
               <div className="rounded-md border border-red-700/60 bg-red-950/40 px-3 py-3 text-sm text-red-100">
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                   <div>
                     <p className="font-medium">Snapshot request failed</p>
                     <p className="mt-1 whitespace-pre-wrap text-xs text-red-200">
-                      {errorMessage}
+                      {error_message}
                     </p>
                   </div>
                 </div>
@@ -453,34 +472,34 @@ export function ConfigInspectorPanel({
                 <h3 className="text-sm font-semibold">Transfer Map</h3>
               </div>
 
-              {transferRows.length === 0 ? (
+              {transfer_rows.length === 0 ? (
                 <p className="text-xs text-zinc-400">
                   No node transfer edges available in the current snapshot.
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {transferRows.map((row) => (
+                  {transfer_rows.map((row) => (
                     <div
-                      key={row.nodeName}
+                      key={row.node_name}
                       className="rounded-md border border-zinc-800 bg-zinc-950/60 px-2 py-2 text-xs"
                     >
                       <button
                         type="button"
-                        onClick={() => handleJumpToNode(row.nodeName)}
+                        onClick={() => handle_jump_to_node(row.node_name)}
                         className={cn(
                           "font-medium text-zinc-100 underline-offset-2",
-                          nodeChunkLookup.has(row.nodeName)
+                          node_chunk_lookup.has(row.node_name)
                             ? "cursor-pointer hover:underline"
                             : "cursor-default"
                         )}
-                        disabled={!nodeChunkLookup.has(row.nodeName)}
+                        disabled={!node_chunk_lookup.has(row.node_name)}
                         title={
-                          nodeChunkLookup.has(row.nodeName)
+                          node_chunk_lookup.has(row.node_name)
                             ? "Jump to node prompt"
                             : "Node prompt not present in snapshot"
                         }
                       >
-                        {row.nodeName}
+                        {row.node_name}
                       </button>
 
                       {row.outgoing.length === 0 ? (
@@ -488,20 +507,20 @@ export function ConfigInspectorPanel({
                       ) : (
                         <ul className="mt-1 space-y-1 pl-3">
                           {row.outgoing.map((edge) => (
-                            <li key={edge.edgeId} className="text-zinc-300">
+                            <li key={edge.edge_id} className="text-zinc-300">
                               <span className="text-zinc-500">→ </span>
                               <button
                                 type="button"
-                                onClick={() => handleJumpToNode(edge.target)}
+                                onClick={() => handle_jump_to_node(edge.target)}
                                 className={cn(
                                   "underline-offset-2",
-                                  nodeChunkLookup.has(edge.target)
+                                  node_chunk_lookup.has(edge.target)
                                     ? "cursor-pointer hover:underline"
                                     : "cursor-default text-zinc-400"
                                 )}
-                                disabled={!nodeChunkLookup.has(edge.target)}
+                                disabled={!node_chunk_lookup.has(edge.target)}
                                 title={
-                                  nodeChunkLookup.has(edge.target)
+                                  node_chunk_lookup.has(edge.target)
                                     ? "Jump to target node prompt"
                                     : "Node prompt not present in snapshot"
                                 }
@@ -510,7 +529,7 @@ export function ConfigInspectorPanel({
                               </button>
                               <span className="text-zinc-500">
                                 {" "}
-                                ({truncate(edge.forwardCondition, 70)})
+                                ({mjrvs_truncate(edge.forward_condition, 70)})
                               </span>
                             </li>
                           ))}
@@ -522,9 +541,9 @@ export function ConfigInspectorPanel({
               )}
             </section>
 
-            {groupDefinitions.map((group) => {
-              const items = groupedChunks[group.type]
-              const isExpanded = expandedGroups[group.type]
+            {mjrvs_group_definitions.map((group) => {
+              const items = grouped_chunks[group.type]
+              const is_expanded = expanded_groups[group.type]
 
               return (
                 <section
@@ -533,7 +552,7 @@ export function ConfigInspectorPanel({
                 >
                   <button
                     type="button"
-                    onClick={() => handleToggleGroup(group.type)}
+                    onClick={() => handle_toggle_group(group.type)}
                     className="flex w-full items-center justify-between px-3 py-3 text-left"
                   >
                     <div>
@@ -542,35 +561,38 @@ export function ConfigInspectorPanel({
                         {items.length} item{items.length === 1 ? "" : "s"}
                       </p>
                     </div>
-                    {isExpanded ? (
+                    {is_expanded ? (
                       <ChevronDown className="h-4 w-4 text-zinc-400" />
                     ) : (
                       <ChevronRight className="h-4 w-4 text-zinc-400" />
                     )}
                   </button>
 
-                  {isExpanded && (
+                  {is_expanded && (
                     <div className="space-y-2 border-t border-zinc-800 p-3">
                       {items.length === 0 ? (
                         <p className="text-xs text-zinc-500">No components.</p>
                       ) : (
                         items.map((chunk) => {
-                          const chunkKey = getChunkKey(chunk)
-                          const expanded = Boolean(expandedItems[chunkKey])
-                          const summary = truncate(summarizeContent(chunk), 100)
-                          const viewer = getViewerContent(chunk)
+                          const chunk_key = mjrvs_get_chunk_key(chunk)
+                          const is_item_expanded = Boolean(expanded_items[chunk_key])
+                          const summary = mjrvs_truncate(
+                            mjrvs_summarize_content(chunk),
+                            100
+                          )
+                          const viewer = mjrvs_get_viewer_content(chunk)
 
                           return (
                             <div
-                              key={chunkKey}
+                              key={chunk_key}
                               ref={(element) => {
-                                itemRefs.current[chunkKey] = element
+                                item_refs.current[chunk_key] = element
                               }}
                               className="rounded-md border border-zinc-800 bg-zinc-950/70"
                             >
                               <button
                                 type="button"
-                                onClick={() => handleToggleItem(chunkKey)}
+                                onClick={() => handle_toggle_item(chunk_key)}
                                 className="flex w-full items-start justify-between gap-3 px-3 py-2 text-left"
                               >
                                 <div className="min-w-0">
@@ -584,31 +606,31 @@ export function ConfigInspectorPanel({
                                     {summary || "(empty content)"}
                                   </p>
                                 </div>
-                                {expanded ? (
+                                {is_item_expanded ? (
                                   <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-zinc-400" />
                                 ) : (
                                   <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-zinc-400" />
                                 )}
                               </button>
 
-                              {expanded && (
+                              {is_item_expanded && (
                                 <div className="border-t border-zinc-800 px-3 py-3">
                                   <div className="mb-2 flex items-center justify-end">
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        void handleCopyChunk(chunk)
+                                        void handle_copy_chunk(chunk)
                                       }}
                                       className="inline-flex items-center gap-1 rounded-md border border-zinc-700 px-2 py-1 text-xs transition-colors hover:bg-zinc-900"
                                       title="Copy full content"
                                     >
-                                      {copiedChunkKey === chunkKey ? (
+                                      {copied_chunk_key === chunk_key ? (
                                         <Check className="h-3.5 w-3.5 text-emerald-400" />
                                       ) : (
                                         <Copy className="h-3.5 w-3.5 text-zinc-300" />
                                       )}
                                       <span>
-                                        {copiedChunkKey === chunkKey
+                                        {copied_chunk_key === chunk_key
                                           ? "Copied"
                                           : "Copy"}
                                       </span>

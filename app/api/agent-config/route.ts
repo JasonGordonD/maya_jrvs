@@ -1,93 +1,84 @@
 import { NextResponse } from "next/server"
 
 import {
-  getElevenLabsAgentId,
-  getElevenLabsApiKey,
-} from "@/lib/server-env"
-import { decomposeAgentConfig, type ConfigSnapshot } from "@/lib/config-snapshot"
+  mjrvs_get_or_create_config_snapshot,
+  mjrvs_snapshot_agent_config,
+} from "@/lib/mjrvs_config_snapshot"
 
 export const runtime = "nodejs"
 
-export async function GET() {
-  const apiKey = getElevenLabsApiKey()
-  const agentId = getElevenLabsAgentId()
+const mjrvs_read_agent_id = (request: Request): string | undefined => {
+  const request_url = new URL(request.url)
+  const raw_agent_id = request_url.searchParams.get("agent_id")
+  if (!raw_agent_id) return undefined
 
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "Missing ELEVENLABS_API_KEY" } satisfies Partial<ConfigSnapshot>,
-      { status: 500 }
-    )
-  }
+  const trimmed_agent_id = raw_agent_id.trim()
+  return trimmed_agent_id.length > 0 ? trimmed_agent_id : undefined
+}
 
-  if (!agentId) {
-    return NextResponse.json(
-      { error: "Missing NEXT_PUBLIC_ELEVENLABS_AGENT_ID" } satisfies Partial<ConfigSnapshot>,
-      { status: 500 }
-    )
-  }
+const mjrvs_read_refresh = (request: Request): boolean => {
+  const request_url = new URL(request.url)
+  const refresh_value = request_url.searchParams.get("refresh")
+  if (!refresh_value) return false
 
-  const url = `https://api.elevenlabs.io/v1/convai/agents/${encodeURIComponent(agentId)}`
+  return refresh_value === "1" || refresh_value.toLowerCase() === "true"
+}
+
+const mjrvs_to_error_response = (error: unknown) => {
+  const details =
+    error instanceof Error ? error.message : "Unknown snapshot request error"
+
+  return NextResponse.json(
+    {
+      error: "Unable to load agent config snapshot",
+      details,
+      chunks: [],
+      snapshot_at: null,
+      agent_id: null,
+      agent_name: "",
+      source: "live",
+    },
+    { status: 500 }
+  )
+}
+
+export async function GET(request: Request) {
+  const agent_id = mjrvs_read_agent_id(request)
+  const refresh = mjrvs_read_refresh(request)
 
   try {
-    const upstream = await fetch(url, {
-      method: "GET",
-      headers: { "xi-api-key": apiKey },
-      cache: "no-store",
+    if (refresh) {
+      const snapshot_state = await mjrvs_snapshot_agent_config({ agent_id })
+      return NextResponse.json({
+        ...snapshot_state,
+        source: "live",
+        agent_name: snapshot_state.agent_id ?? "Unknown Agent",
+      })
+    }
+
+    const snapshot_result = await mjrvs_get_or_create_config_snapshot({
+      agent_id,
     })
-
-    const body = await upstream.text()
-
-    if (!upstream.ok) {
-      return NextResponse.json(
-        {
-          error: `ElevenLabs API error (${upstream.status}): ${body || upstream.statusText}`,
-          chunks: [],
-          snapshot_at: new Date().toISOString(),
-          agent_name: "",
-        } satisfies ConfigSnapshot,
-        { status: upstream.status }
-      )
-    }
-
-    let parsed: Record<string, unknown>
-    try {
-      parsed = JSON.parse(body)
-    } catch {
-      return NextResponse.json(
-        {
-          error: "Failed to parse ElevenLabs API response as JSON",
-          chunks: [],
-          snapshot_at: new Date().toISOString(),
-          agent_name: "",
-        } satisfies ConfigSnapshot,
-        { status: 502 }
-      )
-    }
-
-    const now = new Date().toISOString()
-    const chunks = decomposeAgentConfig(parsed)
-    const agentName =
-      typeof parsed.name === "string" ? parsed.name : "Unknown Agent"
-
-    const snapshot: ConfigSnapshot = {
-      chunks,
-      snapshot_at: now,
-      agent_name: agentName,
-    }
-
-    return NextResponse.json(snapshot)
+    return NextResponse.json({
+      ...snapshot_result,
+      agent_name: snapshot_result.agent_id ?? "Unknown Agent",
+    })
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unknown error fetching agent config"
+    return mjrvs_to_error_response(error)
+  }
+}
 
-    return NextResponse.json(
-      {
-        error: `Unable to fetch agent config: ${message}`,
-        chunks: [],
-        snapshot_at: new Date().toISOString(),
-        agent_name: "",
-      } satisfies ConfigSnapshot,
-      { status: 500 }
-    )
+export async function POST(request: Request) {
+  const agent_id = mjrvs_read_agent_id(request)
+
+  try {
+    const snapshot_state = await mjrvs_snapshot_agent_config({ agent_id })
+    return NextResponse.json({
+      ...snapshot_state,
+      source: "live",
+      agent_name: snapshot_state.agent_id ?? "Unknown Agent",
+    })
+  } catch (error) {
+    return mjrvs_to_error_response(error)
   }
 }

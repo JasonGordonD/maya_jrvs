@@ -14,7 +14,7 @@ import {
   Search,
 } from "lucide-react"
 
-import { ConfigInspectorPanel } from "@/components/config-inspector-panel"
+import { Mjrvs_config_inspector_panel } from "@/components/mjrvs_config_inspector_panel"
 import {
   ConversationBar,
   type AudioInputMode,
@@ -548,7 +548,8 @@ export default function Home() {
     useState<ConnectionStatus>("disconnected")
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [isHistorySidebarOpen, setIsHistorySidebarOpen] = useState(false)
-  const [isConfigInspectorOpen, setIsConfigInspectorOpen] = useState(false)
+  const [is_config_inspector_open, set_is_config_inspector_open] =
+    useState(false)
   const [sessionHistory, setSessionHistory] = useState<SessionHistoryEntry[]>([])
   const [viewedSessionId, setViewedSessionId] = useState<string | null>(null)
   const [isAgentSpeaking, setIsAgentSpeaking] = useState(false)
@@ -1839,18 +1840,20 @@ export default function Home() {
               <div className="flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsConfigInspectorOpen((open) => !open)}
+                  onClick={() =>
+                    set_is_config_inspector_open((is_open) => !is_open)
+                  }
                   className={cn(
                     copyButtonClassName,
-                    isConfigInspectorOpen && "bg-zinc-800"
+                    is_config_inspector_open && "bg-zinc-800"
                   )}
                   title={
-                    isConfigInspectorOpen
+                    is_config_inspector_open
                       ? "Hide Agent Config inspector"
                       : "Show Agent Config inspector"
                   }
                   aria-label={
-                    isConfigInspectorOpen
+                    is_config_inspector_open
                       ? "Hide Agent Config inspector"
                       : "Show Agent Config inspector"
                   }
@@ -2244,9 +2247,9 @@ export default function Home() {
           </div>
         </div>
       </div>
-      <ConfigInspectorPanel
-        isOpen={isConfigInspectorOpen}
-        onClose={() => setIsConfigInspectorOpen(false)}
+      <Mjrvs_config_inspector_panel
+        is_open={is_config_inspector_open}
+        on_close={() => set_is_config_inspector_open(false)}
       />
     </main>
   )

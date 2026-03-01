@@ -13,12 +13,12 @@ import {
 } from "lucide-react"
 
 import {
-  buildTransferMap,
-  type ComponentType,
-  type ConfigChunk,
-  type ConfigSnapshot,
-  type TransferMap,
-} from "@/lib/config-snapshot"
+  mjrvs_build_transfer_map,
+  type mjrvs_component_type,
+  type mjrvs_config_chunk,
+  type mjrvs_config_snapshot,
+  type mjrvs_transfer_map,
+} from "@/lib/mjrvs_config_snapshot"
 import { cn } from "@/lib/utils"
 
 // ---------------------------------------------------------------------------
@@ -26,16 +26,16 @@ import { cn } from "@/lib/utils"
 // ---------------------------------------------------------------------------
 
 type GroupedChunks = {
-  root_prompt: ConfigChunk[]
-  node_prompt: ConfigChunk[]
-  edge_condition: ConfigChunk[]
-  tool_schema: ConfigChunk[]
-  global_config: ConfigChunk[]
+  root_prompt: mjrvs_config_chunk[]
+  node_prompt: mjrvs_config_chunk[]
+  edge_condition: mjrvs_config_chunk[]
+  tool_schema: mjrvs_config_chunk[]
+  global_config: mjrvs_config_chunk[]
 }
 
 type InspectorTab = "components" | "transfer-map"
 
-const GROUP_ORDER: ComponentType[] = [
+const GROUP_ORDER: mjrvs_component_type[] = [
   "root_prompt",
   "node_prompt",
   "edge_condition",
@@ -43,7 +43,7 @@ const GROUP_ORDER: ComponentType[] = [
   "global_config",
 ]
 
-const GROUP_LABELS: Record<ComponentType, string> = {
+const GROUP_LABELS: Record<mjrvs_component_type, string> = {
   root_prompt: "Root Prompt",
   node_prompt: "Nodes",
   edge_condition: "Edges",
@@ -55,7 +55,7 @@ const GROUP_LABELS: Record<ComponentType, string> = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function groupChunks(chunks: ConfigChunk[]): GroupedChunks {
+function groupChunks(chunks: mjrvs_config_chunk[]): GroupedChunks {
   const groups: GroupedChunks = {
     root_prompt: [],
     node_prompt: [],
@@ -148,7 +148,7 @@ function ContentViewer({ content }: { content: string }) {
   )
 }
 
-function chunkKey(chunk: ConfigChunk): string {
+function chunkKey(chunk: mjrvs_config_chunk): string {
   return `${chunk.component_type}:${chunk.raw_id}:${chunk.component_id}`
 }
 
@@ -157,7 +157,7 @@ function ChunkItem({
   isExpanded,
   onToggle,
 }: {
-  chunk: ConfigChunk
+  chunk: mjrvs_config_chunk
   isExpanded: boolean
   onToggle: () => void
 }) {
@@ -200,8 +200,8 @@ function ChunkGroup({
   expandedId,
   onToggleChunk,
 }: {
-  type: ComponentType
-  chunks: ConfigChunk[]
+  type: mjrvs_component_type
+  chunks: mjrvs_config_chunk[]
   expandedId: string | null
   onToggleChunk: (id: string) => void
 }) {
@@ -260,7 +260,7 @@ function TransferMapView({
   transferMap,
   onNodeClick,
 }: {
-  transferMap: TransferMap
+  transferMap: mjrvs_transfer_map
   onNodeClick: (name: string) => void
 }) {
   const adjacency = useMemo(() => {
@@ -377,12 +377,12 @@ function TransferMapView({
               >
                 {edge.target}
               </button>
-              {edge.forwardCondition && (
+              {edge.forward_condition && (
                 <span
                   className="ml-auto max-w-[50%] truncate text-[10px] text-zinc-500"
-                  title={edge.forwardCondition}
+                  title={edge.forward_condition}
                 >
-                  {edge.forwardCondition}
+                  {edge.forward_condition}
                 </span>
               )}
             </div>
@@ -404,7 +404,7 @@ export function ConfigInspector({
   open: boolean
   onClose: () => void
 }) {
-  const [snapshot, setSnapshot] = useState<ConfigSnapshot | null>(null)
+  const [snapshot, setSnapshot] = useState<mjrvs_config_snapshot | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<InspectorTab>("components")
@@ -419,7 +419,7 @@ export function ConfigInspector({
         method: "GET",
         cache: "no-store",
       })
-      const data: ConfigSnapshot = await res.json()
+      const data: mjrvs_config_snapshot = await res.json()
       if (!res.ok || data.error) {
         setError(data.error || `HTTP ${res.status}`)
         if (data.chunks?.length > 0) setSnapshot(data)
@@ -447,7 +447,7 @@ export function ConfigInspector({
   )
 
   const transferMap = useMemo(
-    () => (snapshot ? buildTransferMap(snapshot.chunks) : null),
+    () => (snapshot ? mjrvs_build_transfer_map(snapshot.chunks) : null),
     [snapshot]
   )
 
