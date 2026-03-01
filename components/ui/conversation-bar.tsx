@@ -57,6 +57,11 @@ export interface ConversationBarProps {
   onError?: (error: Error) => void
 
   /**
+   * Callback for low-level debug events from the conversation SDK
+   */
+  onDebug?: (event: unknown) => void
+
+  /**
    * Callback when a message is received
    */
   onMessage?: (message: { source: "user" | "ai"; message: string }) => void
@@ -85,6 +90,7 @@ export const ConversationBar = React.forwardRef<
       onConnect,
       onDisconnect,
       onError,
+      onDebug,
       onMessage,
       onSendMessage,
       inputDeviceId,
@@ -110,6 +116,9 @@ export const ConversationBar = React.forwardRef<
       },
       onMessage: (message) => {
         onMessage?.(message)
+      },
+      onDebug: (event) => {
+        onDebug?.(event)
       },
       micMuted: isMuted,
       onError: (error: unknown) => {
@@ -173,7 +182,14 @@ export const ConversationBar = React.forwardRef<
         setAgentState("disconnected")
         onError?.(error as Error)
       }
-    }, [conversation, getMicStream, getSignedUrl, agentId, onError, inputDeviceId])
+    }, [
+      conversation,
+      getMicStream,
+      getSignedUrl,
+      agentId,
+      onError,
+      inputDeviceId,
+    ])
 
     const handleEndSession = React.useCallback(() => {
       conversation.endSession()
