@@ -9,11 +9,12 @@ import {
   Clock3,
   Copy,
   Download,
-  FileCode2,
+  FileCode,
   RotateCcw,
   Search,
 } from "lucide-react"
 
+import { ConfigInspectorPanel } from "@/components/config-inspector-panel"
 import {
   ConversationBar,
   type AudioInputMode,
@@ -22,7 +23,6 @@ import {
 import { Message, MessageContent } from "@/components/ui/message"
 import { MicSelector } from "@/components/ui/mic-selector"
 import { Response } from "@/components/ui/response"
-import { ConfigInspector } from "@/components/ui/config-inspector"
 import { cn } from "@/lib/utils"
 
 type ConversationEvent = { source: "user" | "ai"; message: string }
@@ -548,6 +548,7 @@ export default function Home() {
     useState<ConnectionStatus>("disconnected")
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [isHistorySidebarOpen, setIsHistorySidebarOpen] = useState(false)
+  const [isConfigInspectorOpen, setIsConfigInspectorOpen] = useState(false)
   const [sessionHistory, setSessionHistory] = useState<SessionHistoryEntry[]>([])
   const [viewedSessionId, setViewedSessionId] = useState<string | null>(null)
   const [isAgentSpeaking, setIsAgentSpeaking] = useState(false)
@@ -555,7 +556,6 @@ export default function Home() {
   const [errorLogEntries, setErrorLogEntries] = useState<ErrorLogEntry[]>([])
   const [isToolPanelOpen, setIsToolPanelOpen] = useState(true)
   const [mobilePanelTab, setMobilePanelTab] = useState<MobilePanelTab>("tools")
-  const [isConfigInspectorOpen, setIsConfigInspectorOpen] = useState(false)
   const transcriptRef = useRef<HTMLDivElement>(null)
   const transcriptSearchInputRef = useRef<HTMLInputElement>(null)
   const transcriptMatchElementsRef = useRef<HTMLElement[]>([])
@@ -1839,15 +1839,23 @@ export default function Home() {
               <div className="flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsConfigInspectorOpen(true)}
+                  onClick={() => setIsConfigInspectorOpen((open) => !open)}
                   className={cn(
                     copyButtonClassName,
                     isConfigInspectorOpen && "bg-zinc-800"
                   )}
-                  title="Inspect agent configuration"
-                  aria-label="Open agent config inspector"
+                  title={
+                    isConfigInspectorOpen
+                      ? "Hide Agent Config inspector"
+                      : "Show Agent Config inspector"
+                  }
+                  aria-label={
+                    isConfigInspectorOpen
+                      ? "Hide Agent Config inspector"
+                      : "Show Agent Config inspector"
+                  }
                 >
-                  <FileCode2 className="h-3.5 w-3.5 text-zinc-300" />
+                  <FileCode className="h-3.5 w-3.5 text-zinc-300" />
                   <span className="hidden sm:inline">Agent Config</span>
                 </button>
                 <span className="font-mono text-xs text-zinc-300">
@@ -2236,9 +2244,8 @@ export default function Home() {
           </div>
         </div>
       </div>
-
-      <ConfigInspector
-        open={isConfigInspectorOpen}
+      <ConfigInspectorPanel
+        isOpen={isConfigInspectorOpen}
         onClose={() => setIsConfigInspectorOpen(false)}
       />
     </main>

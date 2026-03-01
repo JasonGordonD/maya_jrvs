@@ -1,9 +1,34 @@
-export type ComponentType =
-  | "root_prompt"
+import { getElevenLabsAgentId, getElevenLabsApiKey } from "@/lib/server-env"
+
+export type ConfigSnapshotComponentType =
   | "global_config"
   | "node_prompt"
   | "edge_condition"
   | "tool_schema"
+  | "root_prompt"
+
+export type ConfigSnapshotChunk = {
+  component_type: ConfigSnapshotComponentType
+  component_id: string
+  content: unknown
+  raw_id: string
+  snapshot_at: string
+}
+
+export type ConfigSnapshotState = {
+  agent_id: string | null
+  snapshot_at: string | null
+  chunks: ConfigSnapshotChunk[]
+}
+
+export type ConfigSnapshotSource = "cache" | "live"
+
+export type ConfigSnapshotResult = ConfigSnapshotState & {
+  source: ConfigSnapshotSource
+}
+
+// Compatibility exports for the existing /api/agent-config route + UI.
+export type ComponentType = ConfigSnapshotComponentType
 
 export type ConfigChunk = {
   component_type: ComponentType
@@ -19,315 +44,6 @@ export type ConfigSnapshot = {
   agent_name: string
   error?: string
 }
-
-// ---------------------------------------------------------------------------
-// Helpers for safe deep access
-// ---------------------------------------------------------------------------
-
-const str = (v: unknown): string =>
-  typeof v === "string" ? v : v != null ? JSON.stringify(v) : ""
-
-const obj = (v: unknown): Record<string, unknown> =>
-  v && typeof v === "object" && !Array.isArray(v)
-    ? (v as Record<string, unknown>)
-    : {}
-
-const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : [])
-
-const jsonPretty = (v: unknown): string => {
-  try {
-    return JSON.stringify(v, null, 2)
-  } catch {
-    return String(v)
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Decompose the raw API payload into typed chunks
-// ---------------------------------------------------------------------------
-
-export function decomposeAgentConfig(
-  raw: Record<string, unknown>
-): ConfigChunk[] {
-  const now = new Date().toISOString()
-  const chunks: ConfigChunk[] = []
-
-  const convConfig = obj(raw.conversation_config)
-  const agentSection = obj(convConfig.agent)
-  const promptSection = obj(agentSection.prompt)
-
-  // ---- root_prompt ----
-  const rootPromptText = str(promptSection.prompt)
-  if (rootPromptText) {
-    chunks.push({
-      component_type: "root_prompt",
-      component_id: "Root Prompt",
-      content: rootPromptText,
-      raw_id: str(raw.agent_id),
-      snapshot_at: now,
-    })
-  }
-
-  // ---- global_config ----
-  const globalConfig: Record<string, unknown> = {}
-  if (promptSection.llm) globalConfig.llm = promptSection.llm
-  if (promptSection.temperature != null)
-    globalConfig.temperature = promptSection.temperature
-  if (promptSection.max_tokens != null)
-    globalConfig.max_tokens = promptSection.max_tokens
-
-  const tts = convConfig.tts
-  if (tts) globalConfig.tts = tts
-
-  const turn = convConfig.turn
-  if (turn) globalConfig.turn = turn
-
-  const conversation = convConfig.conversation
-  if (conversation) globalConfig.conversation = conversation
-
-  const asr = convConfig.asr
-  if (asr) globalConfig.asr = asr
-
-  if (agentSection.first_message)
-    globalConfig.first_message = agentSection.first_message
-  if (agentSection.language) globalConfig.language = agentSection.language
-
-  const languagePresets = convConfig.language_presets
-  if (languagePresets) globalConfig.language_presets = languagePresets
-
-  if (Object.keys(globalConfig).length > 0) {
-    chunks.push({
-      component_type: "global_config",
-      component_id: "Global Config",
-      content: jsonPretty(globalConfig),
-      raw_id: str(raw.agent_id),
-      snapshot_at: now,
-    })
-  }
-
-  // ---- Locate nodes and edges (multi-node / workflow agents) ----
-  const workflow = obj(
-    raw.workflow ??
-      raw.prompt_agent ??
-      raw.agent_graph ??
-      raw.graph ??
-      convConfig.workflow ??
-      agentSection.workflow ??
-      agentSection.graph
-  )
-
-  const rawNodes = arr(
-    workflow.nodes ??
-      workflow.steps ??
-      raw.nodes ??
-      agentSection.nodes
-  )
-
-  const rawEdges = arr(
-    workflow.edges ??
-      workflow.transitions ??
-      raw.edges ??
-      agentSection.edges
-  )
-
-  const nodeIdToName = new Map<string, string>()
-  const nodeToolMap = new Map<string, string[]>()
-
-  // ---- node_prompt ----
-  for (const rawNode of rawNodes) {
-    const node = obj(rawNode)
-    const nodeId =
-      str(node.node_id) || str(node.id) || str(node.step_id) || ""
-    const nodeName =
-      str(node.name) || str(node.label) || str(node.title) || nodeId
-    const nodePromptObj = obj(node.prompt ?? node.config ?? node.agent)
-    const additionalPrompt =
-      str(nodePromptObj.prompt) ||
-      str(nodePromptObj.additional_prompt) ||
-      str(nodePromptObj.system_prompt) ||
-      str(node.prompt)
-    const nodeLlm = str(nodePromptObj.llm) || str(node.llm) || ""
-    const nodeTools = arr(
-      nodePromptObj.tools ?? node.tools ?? nodePromptObj.tool_ids ?? node.tool_ids
-    )
-
-    nodeIdToName.set(nodeId, nodeName)
-
-    const toolNames = nodeTools.map((t) => {
-      const to = obj(t)
-      return str(to.name) || str(to.tool_name) || str(to.id) || str(t)
-    })
-    if (toolNames.length > 0) nodeToolMap.set(nodeId, toolNames)
-
-    const content: Record<string, unknown> = {
-      node_name: nodeName,
-      node_id: nodeId,
-    }
-    if (additionalPrompt) content.additional_prompt = additionalPrompt
-    if (nodeLlm) content.llm = nodeLlm
-    if (node.type) content.type = node.type
-    if (nodeTools.length > 0) content.tools = toolNames
-
-    chunks.push({
-      component_type: "node_prompt",
-      component_id: nodeName,
-      content: jsonPretty(content),
-      raw_id: nodeId,
-      snapshot_at: now,
-    })
-  }
-
-  // ---- edge_condition ----
-  for (const rawEdge of rawEdges) {
-    const edge = obj(rawEdge)
-    const edgeId =
-      str(edge.edge_id) || str(edge.id) || str(edge.transition_id) || ""
-    const sourceId =
-      str(edge.source_node_id) ||
-      str(edge.source) ||
-      str(edge.from) ||
-      str(edge.from_node_id) ||
-      ""
-    const targetId =
-      str(edge.target_node_id) ||
-      str(edge.target) ||
-      str(edge.to) ||
-      str(edge.to_node_id) ||
-      ""
-    const sourceName = nodeIdToName.get(sourceId) || sourceId || "unknown"
-    const targetName = nodeIdToName.get(targetId) || targetId || "unknown"
-
-    const forwardCondition =
-      str(edge.forward_condition) ||
-      str(edge.condition) ||
-      str(edge.description) ||
-      ""
-    const backwardCondition =
-      str(edge.backward_condition) ||
-      str(edge.reverse_condition) ||
-      ""
-
-    const content: Record<string, unknown> = {
-      edge_id: edgeId,
-      source_node: sourceName,
-      source_node_id: sourceId,
-      target_node: targetName,
-      target_node_id: targetId,
-    }
-    if (forwardCondition) content.forward_condition = forwardCondition
-    if (backwardCondition) content.backward_condition = backwardCondition
-
-    chunks.push({
-      component_type: "edge_condition",
-      component_id: `${sourceName} -> ${targetName}`,
-      content: jsonPretty(content),
-      raw_id: edgeId,
-      snapshot_at: now,
-    })
-  }
-
-  // ---- tool_schema ----
-  const rootTools = arr(promptSection.tools)
-  const allToolIds = new Set<string>()
-
-  const processToolList = (
-    tools: unknown[],
-    registeredOn: string
-  ) => {
-    for (const rawTool of tools) {
-      const tool = obj(rawTool)
-      const toolId =
-        str(tool.id) || str(tool.tool_id) || str(tool.name) || ""
-      const toolName = str(tool.name) || str(tool.tool_name) || toolId
-      const toolType =
-        str(tool.type) || str(tool.tool_type) || "unknown"
-
-      const dedupeKey = `${toolName}:${toolId}`
-      if (allToolIds.has(dedupeKey)) continue
-      allToolIds.add(dedupeKey)
-
-      const registeredNodes: string[] = [registeredOn]
-      for (const [nid, tnames] of nodeToolMap.entries()) {
-        const nname = nodeIdToName.get(nid) || nid
-        if (nname === registeredOn) continue
-        if (tnames.includes(toolName) || tnames.includes(toolId)) {
-          registeredNodes.push(nname)
-        }
-      }
-
-      const content: Record<string, unknown> = {
-        tool_name: toolName,
-        tool_type: toolType,
-        registered_on: registeredNodes,
-      }
-      const configKeys = Object.keys(tool).filter(
-        (k) =>
-          !["id", "tool_id", "name", "tool_name", "type", "tool_type"].includes(
-            k
-          )
-      )
-      for (const key of configKeys) {
-        content[key] = tool[key]
-      }
-
-      chunks.push({
-        component_type: "tool_schema",
-        component_id: toolName,
-        content: jsonPretty(content),
-        raw_id: toolId,
-        snapshot_at: now,
-      })
-    }
-  }
-
-  if (rootTools.length > 0) processToolList(rootTools, "Root")
-
-  for (const rawNode of rawNodes) {
-    const node = obj(rawNode)
-    const nodeId = str(node.node_id) || str(node.id) || ""
-    const nodeName = nodeIdToName.get(nodeId) || nodeId
-    const nodePromptObj = obj(node.prompt ?? node.config ?? node.agent)
-    const nodeTools = arr(
-      nodePromptObj.tools ?? node.tools
-    )
-    if (nodeTools.length > 0) processToolList(nodeTools, nodeName)
-  }
-
-  // If no nodes/edges/tools were found, include the full raw config as a fallback
-  const hasStructuredContent = chunks.some(
-    (c) =>
-      c.component_type === "node_prompt" ||
-      c.component_type === "edge_condition" ||
-      c.component_type === "tool_schema"
-  )
-
-  if (!hasStructuredContent && Object.keys(raw).length > 0) {
-    const excluded = new Set([
-      "conversation_config",
-      "agent_id",
-      "name",
-    ])
-    const extra: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(raw)) {
-      if (!excluded.has(k) && v != null) extra[k] = v
-    }
-    if (Object.keys(extra).length > 0) {
-      chunks.push({
-        component_type: "global_config",
-        component_id: "Additional Config",
-        content: jsonPretty(extra),
-        raw_id: str(raw.agent_id),
-        snapshot_at: now,
-      })
-    }
-  }
-
-  return chunks
-}
-
-// ---------------------------------------------------------------------------
-// Build a node-to-node transfer map from edge chunks
-// ---------------------------------------------------------------------------
 
 export type TransferNode = {
   id: string
@@ -346,47 +62,567 @@ export type TransferMap = {
   edges: TransferEdge[]
 }
 
-export function buildTransferMap(chunks: ConfigChunk[]): TransferMap {
-  const nodeChunks = chunks.filter((c) => c.component_type === "node_prompt")
-  const edgeChunks = chunks.filter((c) => c.component_type === "edge_condition")
+type JsonRecord = Record<string, unknown>
 
-  const nodeNames = new Set<string>()
-  const nodes: TransferNode[] = []
+let snapshotChunksState: ConfigSnapshotChunk[] = []
+let snapshotAtState: string | null = null
+let snapshotAgentIdState: string | null = null
 
-  for (const chunk of nodeChunks) {
-    if (!nodeNames.has(chunk.component_id)) {
-      nodeNames.add(chunk.component_id)
-      nodes.push({ id: chunk.raw_id, name: chunk.component_id })
+const isRecord = (value: unknown): value is JsonRecord =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+const asRecord = (value: unknown): JsonRecord => (isRecord(value) ? value : {})
+
+const asString = (value: unknown): string | null =>
+  typeof value === "string" && value.trim().length > 0 ? value.trim() : null
+
+const asStringArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((entry) => asString(entry))
+    .filter((entry): entry is string => Boolean(entry))
+}
+
+const sortByLocale = (values: string[]): string[] =>
+  [...values].sort((left, right) => left.localeCompare(right))
+
+const uniqueStrings = (values: string[]): string[] =>
+  sortByLocale(Array.from(new Set(values)))
+
+const normalizeToolLookupKey = (value: string): string => value.trim().toLowerCase()
+
+const safeStringify = (value: unknown): string => {
+  if (typeof value === "string") return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+const parseJsonBody = (rawBody: string): unknown => {
+  if (!rawBody) return {}
+  try {
+    return JSON.parse(rawBody)
+  } catch {
+    return rawBody
+  }
+}
+
+const extractWorkflowNodeToolIds = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return []
+
+  return uniqueStrings(
+    value.flatMap((entry) => {
+      if (typeof entry === "string") return [entry]
+      if (!isRecord(entry)) return []
+
+      const toolId = asString(entry.tool_id)
+      const id = asString(entry.id)
+      const name = asString(entry.name)
+
+      return [toolId, id, name].filter((candidate): candidate is string =>
+        Boolean(candidate)
+      )
+    })
+  )
+}
+
+const conditionToText = (value: unknown): string => {
+  if (value === null || value === undefined) return "(none)"
+  if (typeof value === "string") return value
+  if (!isRecord(value)) return safeStringify(value)
+
+  const type = asString(value.type)
+  if (!type) return safeStringify(value)
+
+  if (type === "llm") {
+    return asString(value.condition) ?? safeStringify(value)
+  }
+
+  if (type === "unconditional") {
+    return "unconditional"
+  }
+
+  if (type === "result") {
+    if (typeof value.successful === "boolean") {
+      return `successful == ${value.successful}`
+    }
+    return safeStringify(value)
+  }
+
+  if (type === "expression" && value.expression !== undefined) {
+    return safeStringify(value.expression)
+  }
+
+  return safeStringify(value)
+}
+
+const registerToolNodes = (
+  registrations: Map<string, Set<string>>,
+  displayByNormalizedKey: Map<string, string>,
+  toolIds: string[],
+  nodeName: string
+) => {
+  toolIds.forEach((toolId) => {
+    const trimmed = toolId.trim()
+    if (!trimmed) return
+
+    const normalized = normalizeToolLookupKey(trimmed)
+    if (!registrations.has(normalized)) {
+      registrations.set(normalized, new Set<string>())
+    }
+    if (!displayByNormalizedKey.has(normalized)) {
+      displayByNormalizedKey.set(normalized, trimmed)
+    }
+    registrations.get(normalized)?.add(nodeName)
+  })
+}
+
+const resolveNodeRegistrations = (
+  registrations: Map<string, Set<string>>,
+  toolLookupKeys: string[]
+): string[] => {
+  const collectedNodes = new Set<string>()
+
+  toolLookupKeys.forEach((lookupKey) => {
+    const normalized = normalizeToolLookupKey(lookupKey)
+    registrations.get(normalized)?.forEach((nodeName) => {
+      collectedNodes.add(nodeName)
+    })
+  })
+
+  return sortByLocale(Array.from(collectedNodes))
+}
+
+const toSnapshotState = (): ConfigSnapshotState => ({
+  agent_id: snapshotAgentIdState,
+  snapshot_at: snapshotAtState,
+  chunks: [...snapshotChunksState],
+})
+
+type SnapshotToolEntry = {
+  rawId: string
+  name: string
+  type: string
+  toolConfig: unknown
+  lookupKeys: string[]
+}
+
+const collectSnapshotChunks = (
+  payload: JsonRecord,
+  snapshotAt: string
+): ConfigSnapshotChunk[] => {
+  const chunks: ConfigSnapshotChunk[] = []
+
+  const conversationConfig = asRecord(payload.conversation_config)
+  const rootAgentConfig = asRecord(conversationConfig.agent)
+  const rootPromptConfig = asRecord(rootAgentConfig.prompt)
+  const workflowConfig = asRecord(payload.workflow)
+  const workflowNodes = asRecord(workflowConfig.nodes)
+  const workflowEdges = asRecord(workflowConfig.edges)
+  const rootPromptText = asString(rootPromptConfig.prompt) ?? ""
+
+  const globalConfigContent = {
+    llm_selection: {
+      llm: asString(rootPromptConfig.llm),
+      reasoning_effort: rootPromptConfig.reasoning_effort ?? null,
+      thinking_budget: rootPromptConfig.thinking_budget ?? null,
+      temperature: rootPromptConfig.temperature ?? null,
+      max_tokens: rootPromptConfig.max_tokens ?? null,
+      backup_llm_config: rootPromptConfig.backup_llm_config ?? null,
+      cascade_timeout_seconds: rootPromptConfig.cascade_timeout_seconds ?? null,
+    },
+    tts_settings: conversationConfig.tts ?? null,
+    turn_config: conversationConfig.turn ?? null,
+    conversation_initiation_settings: {
+      first_message: asString(rootAgentConfig.first_message) ?? "",
+      disable_first_message_interruptions:
+        rootAgentConfig.disable_first_message_interruptions ?? null,
+      language: asString(rootAgentConfig.language),
+    },
+  }
+
+  chunks.push({
+    component_type: "global_config",
+    component_id: "Global Config",
+    content: globalConfigContent,
+    raw_id: "global_config",
+    snapshot_at: snapshotAt,
+  })
+
+  chunks.push({
+    component_type: "root_prompt",
+    component_id: "Root Prompt",
+    content: {
+      prompt: rootPromptText,
+      llm: asString(rootPromptConfig.llm),
+      full_prompt_config: rootPromptConfig,
+    },
+    raw_id: "root_prompt",
+    snapshot_at: snapshotAt,
+  })
+
+  const nodeIdToName = new Map<string, string>()
+  Object.entries(workflowNodes).forEach(([nodeId, nodeValue]) => {
+    const nodeRecord = asRecord(nodeValue)
+    const nodeName = asString(nodeRecord.label) ?? nodeId
+    nodeIdToName.set(nodeId, nodeName)
+  })
+
+  const toolRegistrations = new Map<string, Set<string>>()
+  const toolDisplayByKey = new Map<string, string>()
+  const rootToolIds = asStringArray(rootPromptConfig.tool_ids)
+  registerToolNodes(
+    toolRegistrations,
+    toolDisplayByKey,
+    rootToolIds,
+    "Root Agent"
+  )
+
+  const nodePromptChunks: ConfigSnapshotChunk[] = []
+  Object.entries(workflowNodes).forEach(([nodeId, nodeValue]) => {
+    const nodeRecord = asRecord(nodeValue)
+    const nodeName = nodeIdToName.get(nodeId) ?? nodeId
+    const nodeConversationConfig = asRecord(nodeRecord.conversation_config)
+    const nodeAgentConfig = asRecord(nodeConversationConfig.agent)
+    const nodePromptConfig = asRecord(nodeAgentConfig.prompt)
+    const additionalPrompt = asString(nodeRecord.additional_prompt) ?? ""
+    const additionalToolIds = asStringArray(nodeRecord.additional_tool_ids)
+    const workflowNodeToolIds = extractWorkflowNodeToolIds(nodeRecord.tools)
+    const nodeToolList = uniqueStrings([
+      ...additionalToolIds,
+      ...workflowNodeToolIds,
+    ])
+
+    registerToolNodes(
+      toolRegistrations,
+      toolDisplayByKey,
+      nodeToolList,
+      nodeName
+    )
+
+    nodePromptChunks.push({
+      component_type: "node_prompt",
+      component_id: nodeName,
+      content: {
+        node_name: nodeName,
+        node_id: nodeId,
+        node_type: asString(nodeRecord.type) ?? "unknown",
+        additional_prompt: additionalPrompt,
+        llm_assignment:
+          asString(nodePromptConfig.llm) ?? asString(rootPromptConfig.llm),
+        tool_list: nodeToolList,
+        node_prompt_config: nodePromptConfig,
+      },
+      raw_id: nodeId,
+      snapshot_at: snapshotAt,
+    })
+  })
+
+  chunks.push(
+    ...nodePromptChunks.sort((left, right) =>
+      left.component_id.localeCompare(right.component_id)
+    )
+  )
+
+  const edgeChunks: ConfigSnapshotChunk[] = []
+  Object.entries(workflowEdges).forEach(([edgeId, edgeValue]) => {
+    const edgeRecord = asRecord(edgeValue)
+    const sourceId = asString(edgeRecord.source) ?? "unknown_source"
+    const targetId = asString(edgeRecord.target) ?? "unknown_target"
+    const sourceName = nodeIdToName.get(sourceId) ?? sourceId
+    const targetName = nodeIdToName.get(targetId) ?? targetId
+    const forwardConditionText = conditionToText(edgeRecord.forward_condition)
+    const backwardConditionText = conditionToText(edgeRecord.backward_condition)
+
+    edgeChunks.push({
+      component_type: "edge_condition",
+      component_id: `${sourceName} -> ${targetName}`,
+      content: {
+        edge_id: edgeId,
+        source_node_name: sourceName,
+        source_node_id: sourceId,
+        target_node_name: targetName,
+        target_node_id: targetId,
+        forward_condition: forwardConditionText,
+        backward_condition: backwardConditionText,
+        forward_condition_raw: edgeRecord.forward_condition ?? null,
+        backward_condition_raw: edgeRecord.backward_condition ?? null,
+      },
+      raw_id: edgeId,
+      snapshot_at: snapshotAt,
+    })
+  })
+
+  chunks.push(
+    ...edgeChunks.sort((left, right) =>
+      left.component_id.localeCompare(right.component_id)
+    )
+  )
+
+  const toolEntriesById = new Map<string, SnapshotToolEntry>()
+  const addToolEntry = (entry: SnapshotToolEntry) => {
+    const normalizedEntryId = normalizeToolLookupKey(entry.rawId)
+    const existing = toolEntriesById.get(normalizedEntryId)
+
+    if (!existing) {
+      toolEntriesById.set(normalizedEntryId, entry)
+      return
+    }
+
+    const shouldPromoteConfig =
+      isRecord(entry.toolConfig) &&
+      Object.keys(entry.toolConfig).length > 1 &&
+      (!isRecord(existing.toolConfig) ||
+        Object.keys(existing.toolConfig).length <= 1)
+
+    if (shouldPromoteConfig) {
+      toolEntriesById.set(normalizedEntryId, entry)
+    } else {
+      existing.lookupKeys = uniqueStrings([
+        ...existing.lookupKeys,
+        ...entry.lookupKeys,
+      ])
     }
   }
 
-  const edges: TransferEdge[] = []
-  for (const chunk of edgeChunks) {
-    try {
-      const parsed = JSON.parse(chunk.content)
-      const source = parsed.source_node || "unknown"
-      const target = parsed.target_node || "unknown"
+  const rootTools = Array.isArray(rootPromptConfig.tools)
+    ? rootPromptConfig.tools
+    : []
 
-      for (const name of [source, target]) {
-        if (!nodeNames.has(name)) {
-          nodeNames.add(name)
-          nodes.push({
-            id: parsed[name === source ? "source_node_id" : "target_node_id"] || name,
-            name,
+  rootTools.forEach((toolValue, index) => {
+    const toolRecord = asRecord(toolValue)
+    const rawId =
+      asString(toolRecord.tool_id) ??
+      asString(toolRecord.id) ??
+      asString(toolRecord.name) ??
+      `tool_${index + 1}`
+    const toolName = asString(toolRecord.name) ?? rawId
+    const lookupKeys = uniqueStrings(
+      [rawId, toolName, asString(toolRecord.tool_id), asString(toolRecord.id)].filter(
+        (candidate): candidate is string => Boolean(candidate)
+      )
+    )
+
+    addToolEntry({
+      rawId,
+      name: toolName,
+      type: asString(toolRecord.type) ?? "unknown",
+      toolConfig: toolRecord,
+      lookupKeys,
+    })
+  })
+
+  rootToolIds.forEach((toolId) => {
+    addToolEntry({
+      rawId: toolId,
+      name: toolId,
+      type: "unknown",
+      toolConfig: { tool_id: toolId, unresolved: true },
+      lookupKeys: [toolId],
+    })
+  })
+
+  Array.from(toolRegistrations.keys()).forEach((normalizedToolId) => {
+    if (toolEntriesById.has(normalizedToolId)) return
+
+    const displayName =
+      toolDisplayByKey.get(normalizedToolId) ?? normalizedToolId
+    addToolEntry({
+      rawId: displayName,
+      name: displayName,
+      type: "unknown",
+      toolConfig: { tool_reference: displayName, unresolved: true },
+      lookupKeys: [displayName],
+    })
+  })
+
+  const toolChunks = Array.from(toolEntriesById.values())
+    .map((toolEntry) => {
+      const registeredOnNodes = resolveNodeRegistrations(
+        toolRegistrations,
+        toolEntry.lookupKeys
+      )
+
+      return {
+        component_type: "tool_schema" as const,
+        component_id: toolEntry.name,
+        content: {
+          tool_name: toolEntry.name,
+          tool_type: toolEntry.type,
+          registered_on_nodes: registeredOnNodes,
+          full_tool_config: toolEntry.toolConfig,
+        },
+        raw_id: toolEntry.rawId,
+        snapshot_at: snapshotAt,
+      }
+    })
+    .sort((left, right) => left.component_id.localeCompare(right.component_id))
+
+  chunks.push(...toolChunks)
+
+  return chunks
+}
+
+const fetchAgentConfig = async (
+  agentId: string,
+  apiKey: string
+): Promise<JsonRecord> => {
+  const upstreamResponse = await fetch(
+    `https://api.elevenlabs.io/v1/convai/agents/${encodeURIComponent(agentId)}`,
+    {
+      method: "GET",
+      headers: {
+        "xi-api-key": apiKey,
+      },
+      cache: "no-store",
+    }
+  )
+
+  const rawBody = await upstreamResponse.text()
+  const parsedBody = parseJsonBody(rawBody)
+
+  if (!upstreamResponse.ok) {
+    const details =
+      typeof parsedBody === "string"
+        ? parsedBody
+        : safeStringify(parsedBody) || upstreamResponse.statusText
+    throw new Error(
+      `Failed to fetch agent config from ElevenLabs (${upstreamResponse.status}): ${details}`
+    )
+  }
+
+  if (!isRecord(parsedBody)) {
+    throw new Error("ElevenLabs returned an unexpected payload for agent config")
+  }
+
+  return parsedBody
+}
+
+export const hasConfigSnapshot = (): boolean => snapshotChunksState.length > 0
+
+export const getConfigSnapshotState = (): ConfigSnapshotState => toSnapshotState()
+
+export const snapshotAgentConfig = async (options?: {
+  agentId?: string
+}): Promise<ConfigSnapshotState> => {
+  const apiKey = getElevenLabsApiKey()
+  const agentId = options?.agentId?.trim() || getElevenLabsAgentId()
+
+  if (!apiKey) {
+    throw new Error("Missing ELEVENLABS_API_KEY")
+  }
+
+  if (!agentId) {
+    throw new Error("Missing NEXT_PUBLIC_ELEVENLABS_AGENT_ID")
+  }
+
+  const payload = await fetchAgentConfig(agentId, apiKey)
+  const snapshotAt = new Date().toISOString()
+  const chunks = collectSnapshotChunks(payload, snapshotAt)
+
+  snapshotChunksState = chunks
+  snapshotAtState = snapshotAt
+  snapshotAgentIdState = agentId
+
+  return toSnapshotState()
+}
+
+export const getOrCreateConfigSnapshot = async (options?: {
+  agentId?: string
+}): Promise<ConfigSnapshotResult> => {
+  const requestedAgentId = options?.agentId?.trim()
+
+  if (
+    hasConfigSnapshot() &&
+    (!requestedAgentId || requestedAgentId === snapshotAgentIdState)
+  ) {
+    return {
+      ...toSnapshotState(),
+      source: "cache",
+    }
+  }
+
+  const refreshed = await snapshotAgentConfig(options)
+  return {
+    ...refreshed,
+    source: "live",
+  }
+}
+
+export const clearConfigSnapshotState = () => {
+  snapshotChunksState = []
+  snapshotAtState = null
+  snapshotAgentIdState = null
+}
+
+const toLegacyChunk = (chunk: ConfigSnapshotChunk): ConfigChunk => ({
+  ...chunk,
+  content: safeStringify(chunk.content),
+})
+
+export function decomposeAgentConfig(raw: Record<string, unknown>): ConfigChunk[] {
+  const payload = asRecord(raw)
+  const snapshotAt = new Date().toISOString()
+  return collectSnapshotChunks(payload, snapshotAt).map(toLegacyChunk)
+}
+
+export function buildTransferMap(chunks: ConfigChunk[]): TransferMap {
+  const nodesByName = new Map<string, TransferNode>()
+  const edges: TransferEdge[] = []
+
+  chunks
+    .filter((chunk) => chunk.component_type === "node_prompt")
+    .forEach((chunk) => {
+      if (!nodesByName.has(chunk.component_id)) {
+        nodesByName.set(chunk.component_id, {
+          id: chunk.raw_id,
+          name: chunk.component_id,
+        })
+      }
+    })
+
+  chunks
+    .filter((chunk) => chunk.component_type === "edge_condition")
+    .forEach((chunk) => {
+      try {
+        const parsed = JSON.parse(chunk.content) as Record<string, unknown>
+        const source =
+          asString(parsed.source_node_name) ??
+          asString(parsed.source_node) ??
+          "unknown"
+        const target =
+          asString(parsed.target_node_name) ??
+          asString(parsed.target_node) ??
+          "unknown"
+
+        if (!nodesByName.has(source)) {
+          nodesByName.set(source, {
+            id: asString(parsed.source_node_id) ?? source,
+            name: source,
           })
         }
+        if (!nodesByName.has(target)) {
+          nodesByName.set(target, {
+            id: asString(parsed.target_node_id) ?? target,
+            name: target,
+          })
+        }
+
+        edges.push({
+          source,
+          target,
+          forwardCondition: asString(parsed.forward_condition) ?? "",
+          backwardCondition: asString(parsed.backward_condition) ?? "",
+        })
+      } catch {
+        // Skip malformed legacy chunk payloads.
       }
+    })
 
-      edges.push({
-        source,
-        target,
-        forwardCondition: parsed.forward_condition || "",
-        backwardCondition: parsed.backward_condition || "",
-      })
-    } catch {
-      // skip malformed edge chunks
-    }
+  return {
+    nodes: Array.from(nodesByName.values()),
+    edges,
   }
-
-  return { nodes, edges }
 }
