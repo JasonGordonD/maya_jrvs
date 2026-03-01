@@ -28,6 +28,10 @@ const ACCEPTED_FILE_TYPES =
   ".pdf,.txt,.md,.docx,.json,.csv,.png,.jpg,.jpeg"
 
 export type AudioInputMode = "mic" | "device" | "mixed"
+export type ConversationClientTools = Record<
+  string,
+  (parameters: any) => Promise<string | number | void> | string | number | void
+>
 
 export interface ConversationBarProps {
   /**
@@ -122,6 +126,11 @@ export interface ConversationBarProps {
    * Changing this signal starts a brand new session.
    */
   newSessionSignal?: number
+
+  /**
+   * Client-side tools that can be invoked by the agent.
+   */
+  clientTools?: ConversationClientTools
 }
 
 export const ConversationBar = React.forwardRef<
@@ -148,6 +157,7 @@ export const ConversationBar = React.forwardRef<
       onSystemAudioCaptureChange,
       forceDisconnectSignal,
       newSessionSignal,
+      clientTools,
     },
     ref
   ) => {
@@ -350,6 +360,14 @@ export const ConversationBar = React.forwardRef<
               }) => void
             }
       ) => {
+        if (audioInputMode === "mic") {
+          return await conversation.startSession({
+            ...sessionConfig,
+            ...(inputDeviceId ? { inputDeviceId } : {}),
+            ...(clientTools ? { clientTools } : {}),
+          })
+        }
+
         // SDK currently supports inputDeviceId. For custom system/mixed streams,
         // we inject the prepared stream into session initialization.
         const originalGetUserMedia =
@@ -367,9 +385,7 @@ export const ConversationBar = React.forwardRef<
         try {
           return await conversation.startSession({
             ...sessionConfig,
-            ...(audioInputMode === "mic" && inputDeviceId
-              ? { inputDeviceId }
-              : {}),
+            ...(clientTools ? { clientTools } : {}),
           })
         } finally {
           ;(
@@ -379,22 +395,34 @@ export const ConversationBar = React.forwardRef<
           ).getUserMedia = originalGetUserMedia
         }
       },
-      [audioInputMode, conversation, inputDeviceId]
+      [audioInputMode, clientTools, conversation, inputDeviceId]
     )
 
     const startConversation = React.useCallback(async () => {
       try {
         setAgentState("connecting")
 
-        const inputStream = await getInputStreamForMode()
-
         if (getSignedUrl) {
           const signedUrl = await getSignedUrl()
-          const conversationId = await startSessionWithInputStream(inputStream, {
-            signedUrl,
-            connectionType: "websocket",
-            onStatusChange: (status) => setAgentState(status.status),
-          })
+          let conversationId: string
+
+          if (audioInputMode === "mic") {
+            conversationId = await conversation.startSession({
+              signedUrl,
+              connectionType: "websocket",
+              onStatusChange: (status) => setAgentState(status.status),
+              ...(inputDeviceId ? { inputDeviceId } : {}),
+              ...(clientTools ? { clientTools } : {}),
+            })
+          } else {
+            const inputStream = await getInputStreamForMode()
+            conversationId = await startSessionWithInputStream(inputStream, {
+              signedUrl,
+              connectionType: "websocket",
+              onStatusChange: (status) => setAgentState(status.status),
+            })
+          }
+
           onConversationId?.(conversationId)
           return
         }
@@ -405,11 +433,24 @@ export const ConversationBar = React.forwardRef<
           )
         }
 
-        const conversationId = await startSessionWithInputStream(inputStream, {
-          agentId,
-          connectionType: "webrtc",
-          onStatusChange: (status) => setAgentState(status.status),
-        })
+        let conversationId: string
+        if (audioInputMode === "mic") {
+          conversationId = await conversation.startSession({
+            agentId,
+            connectionType: "webrtc",
+            onStatusChange: (status) => setAgentState(status.status),
+            ...(inputDeviceId ? { inputDeviceId } : {}),
+            ...(clientTools ? { clientTools } : {}),
+          })
+        } else {
+          const inputStream = await getInputStreamForMode()
+          conversationId = await startSessionWithInputStream(inputStream, {
+            agentId,
+            connectionType: "webrtc",
+            onStatusChange: (status) => setAgentState(status.status),
+          })
+        }
+
         onConversationId?.(conversationId)
       } catch (error) {
         console.error("Error starting conversation:", error)
@@ -423,6 +464,10 @@ export const ConversationBar = React.forwardRef<
       agentId,
       onError,
       onConversationId,
+      audioInputMode,
+      conversation,
+      inputDeviceId,
+      clientTools,
       startSessionWithInputStream,
       cleanupPreparedAudioStreams,
     ])
@@ -519,9 +564,8 @@ export const ConversationBar = React.forwardRef<
       }
     }, [cleanupPreparedAudioStreams])
 
-    React.useEffect(() => {
-      cleanupPreparedAudioStreams()
-    }, [inputDeviceId, audioInputMode, cleanupPreparedAudioStreams])
+    // Avoid cleaning streams on input mode/device changes while connected:
+    // doing so can stop active tracks and cause silent transcripts ("...").
 
     React.useEffect(() => {
       if (!agentState) return

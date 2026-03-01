@@ -1,11 +1,12 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Check, ChevronDown, Copy, RotateCcw } from "lucide-react"
 
 import {
   ConversationBar,
   type AudioInputMode,
+  type ConversationClientTools,
 } from "@/components/ui/conversation-bar"
 import { Message, MessageContent } from "@/components/ui/message"
 import { MicSelector } from "@/components/ui/mic-selector"
@@ -17,8 +18,9 @@ type ConversationEvent = { source: "user" | "ai"; message: string }
 type TranscriptMessage = {
   id: string
   timestamp: string
-  source: "user" | "ai"
+  source: "user" | "ai" | "structured"
   message: string
+  label?: string
 }
 
 type ToolLogEntry = {
@@ -45,7 +47,22 @@ type ConnectionStatus =
   | "connected"
   | "disconnecting"
 
-type SpeakerLabel = "User" | "Maya"
+type DisplayStructuredContentParams = {
+  content: string
+  label?: string
+}
+
+type ReportToolDispatchParams = {
+  tool_name: string
+  action?: string
+  params?: string
+  result_summary?: string
+}
+
+type ReportActiveNodeParams = {
+  node_name: string
+  node_type?: string
+}
 
 const createMessageId = () =>
   `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
@@ -73,11 +90,14 @@ const truncateConversationId = (id: string): string => {
   return `${id.slice(0, 8)}...${id.slice(-6)}`
 }
 
-const getSpeakerLabel = (source: TranscriptMessage["source"]): SpeakerLabel =>
-  source === "user" ? "User" : "Maya"
+const getSpeakerLabel = (entry: TranscriptMessage): string => {
+  if (entry.source === "user") return "User"
+  if (entry.source === "ai") return "Maya"
+  return entry.label ? `Structured (${entry.label})` : "Structured"
+}
 
 const formatTranscriptLine = (entry: TranscriptMessage): string =>
-  `[${entry.timestamp}] ${getSpeakerLabel(entry.source)}: ${entry.message}`
+  `[${entry.timestamp}] ${getSpeakerLabel(entry)}: ${entry.message}`
 
 const copyButtonClassName =
   "inline-flex items-center gap-1 rounded-md border border-zinc-800 px-2 py-1 font-mono text-xs transition-colors hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
@@ -383,6 +403,10 @@ export default function Home() {
   const [newSessionSignal, setNewSessionSignal] = useState(0)
   const [sessionDurationSeconds, setSessionDurationSeconds] = useState(0)
   const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null)
+  const [useStructuredToolDispatch, setUseStructuredToolDispatch] =
+    useState(false)
+  const [useAuthoritativeNodeUpdates, setUseAuthoritativeNodeUpdates] =
+    useState(false)
   const [activeNode, setActiveNode] = useState<string>("—")
   const [conversationId, setConversationId] = useState<string>("")
   const [copiedConversationId, setCopiedConversationId] = useState(false)
@@ -620,6 +644,8 @@ export default function Home() {
     setMessages([])
     setToolLogEntries([])
     setErrorLogEntries([])
+    setUseStructuredToolDispatch(false)
+    setUseAuthoritativeNodeUpdates(false)
     setActiveNode("—")
     setConversationId("")
     setSystemAudioCaptureLive(false)
@@ -650,24 +676,137 @@ export default function Home() {
     })
   }, [])
 
-  const handleConversationDebug = useCallback(
-    (event: unknown) => {
-      console.log("[JRVS] onDebug", event)
-      appendToolLogEntry(createToolLogEntry(event))
+  const handleDisplayStructuredContent = useCallback(
+    (parameters: DisplayStructuredContentParams) => {
+      const content =
+        typeof parameters?.content === "string" ? parameters.content.trim() : ""
 
-      const nodeFromDebug = extractNodeFromMessage(stringifyUnknown(event))
-      if (nodeFromDebug) {
-        setActiveNode(nodeFromDebug)
+      if (!content) {
+        return "No content to display"
       }
+
+      const label =
+        typeof parameters?.label === "string" && parameters.label.trim()
+          ? parameters.label.trim()
+          : undefined
+
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: createMessageId(),
+          timestamp: createTimestamp(),
+          source: "structured",
+          message: content,
+          label,
+        },
+      ])
+
+      return "Content displayed successfully"
+    },
+    []
+  )
+
+  const handleReportToolDispatch = useCallback(
+    (parameters: ReportToolDispatchParams) => {
+      const rawToolName =
+        typeof parameters?.tool_name === "string"
+          ? parameters.tool_name.trim()
+          : ""
+      if (!rawToolName) {
+        return "Missing tool_name"
+      }
+
+      const rawAction =
+        typeof parameters?.action === "string" ? parameters.action.trim() : ""
+      const paramsText =
+        typeof parameters?.params === "string" && parameters.params.trim()
+          ? parameters.params.trim()
+          : "params: n/a"
+      const resultSummary =
+        typeof parameters?.result_summary === "string" &&
+        parameters.result_summary.trim()
+          ? parameters.result_summary.trim()
+          : "result unavailable"
+
+      setUseStructuredToolDispatch(true)
+
+      appendToolLogEntry({
+        id: createMessageId(),
+        timestamp: createTimestamp(),
+        toolName: rawAction ? `${rawToolName}.${rawAction}` : rawToolName,
+        parameters: paramsText,
+        resultSummary,
+      })
+
+      return "Logged"
     },
     [appendToolLogEntry]
   )
 
+  const handleReportActiveNode = useCallback(
+    (parameters: ReportActiveNodeParams) => {
+      const nodeName =
+        typeof parameters?.node_name === "string"
+          ? parameters.node_name.trim()
+          : ""
+
+      if (!nodeName) {
+        return "Missing node_name"
+      }
+
+      const nodeType =
+        typeof parameters?.node_type === "string"
+          ? parameters.node_type.trim()
+          : ""
+
+      setUseAuthoritativeNodeUpdates(true)
+      setActiveNode(nodeType ? `${nodeName} (${nodeType})` : nodeName)
+
+      return "Node updated"
+    },
+    []
+  )
+
+  // AGENT-SIDE: These client tools must also be registered in the ElevenLabs
+  // agent configuration with matching names and parameter schemas.
+  // See CC work order for agent-side setup.
+  const clientTools: ConversationClientTools = useMemo(
+    () => ({
+      display_structured_content: handleDisplayStructuredContent,
+      report_tool_dispatch: handleReportToolDispatch,
+      report_active_node: handleReportActiveNode,
+    }),
+    [
+      handleDisplayStructuredContent,
+      handleReportActiveNode,
+      handleReportToolDispatch,
+    ]
+  )
+
+  const handleConversationDebug = useCallback(
+    (event: unknown) => {
+      console.log("[JRVS] onDebug", event)
+      if (!useStructuredToolDispatch) {
+        appendToolLogEntry(createToolLogEntry(event))
+      }
+
+      if (!useAuthoritativeNodeUpdates) {
+        const nodeFromDebug = extractNodeFromMessage(stringifyUnknown(event))
+        if (nodeFromDebug) {
+          setActiveNode(nodeFromDebug)
+        }
+      }
+    },
+    [appendToolLogEntry, useAuthoritativeNodeUpdates, useStructuredToolDispatch]
+  )
+
   const handleConversationMessage = useCallback((event: ConversationEvent) => {
     console.log("[JRVS] onMessage", event)
-    appendToolLogEntry(createToolLogEntry(event.message))
+    if (!useStructuredToolDispatch) {
+      appendToolLogEntry(createToolLogEntry(event.message))
+    }
 
-    if (event.source === "ai") {
+    if (event.source === "ai" && !useAuthoritativeNodeUpdates) {
       const detectedNode = extractNodeFromMessage(event.message)
       if (detectedNode) {
         setActiveNode(detectedNode)
@@ -722,7 +861,7 @@ export default function Home() {
         },
       ]
     })
-  }, [appendToolLogEntry])
+  }, [appendToolLogEntry, useAuthoritativeNodeUpdates, useStructuredToolDispatch])
 
   const handleUserTextMessage = useCallback((message: string) => {
     const content = message.trim()
@@ -993,7 +1132,9 @@ export default function Home() {
                       variant={entry.source === "user" ? "contained" : "flat"}
                       className={cn(
                         "relative pr-9",
-                        entry.source === "ai" ? "max-w-[90%]" : ""
+                        entry.source === "ai" && "max-w-[90%]",
+                        entry.source === "structured" &&
+                          "max-w-[95%] border-l-2 border-sky-500/60 bg-sky-500/10 pl-3"
                       )}
                     >
                       <button
@@ -1028,13 +1169,24 @@ export default function Home() {
                           "mb-1 font-mono text-[11px]",
                           entry.source === "user"
                             ? "text-primary-foreground/70"
-                            : "text-muted-foreground"
+                            : entry.source === "structured"
+                              ? "text-sky-300/80"
+                              : "text-muted-foreground"
                         )}
                       >
                         [{entry.timestamp}]
                       </p>
 
-                      {entry.source === "ai" ? (
+                      {entry.source === "structured" ? (
+                        <>
+                          {entry.label && (
+                            <p className="mb-1 text-xs font-semibold tracking-wide text-sky-300">
+                              {entry.label}
+                            </p>
+                          )}
+                          <Response>{entry.message}</Response>
+                        </>
+                      ) : entry.source === "ai" ? (
                         <Response>{entry.message}</Response>
                       ) : (
                         <p className="whitespace-pre-wrap">{entry.message}</p>
@@ -1054,6 +1206,7 @@ export default function Home() {
               audioInputMode={audioInputMode}
               forceDisconnectSignal={audioModeRestartSignal}
               newSessionSignal={newSessionSignal}
+              clientTools={clientTools}
               onSystemAudioCaptureChange={setSystemAudioCaptureLive}
               onConnect={() => {
                 console.log("[JRVS] onConnect")
