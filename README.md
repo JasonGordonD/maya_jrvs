@@ -1,32 +1,10 @@
 # JRVS Dashboard
 
-JRVS Dashboard is a Next.js app for interacting with a conversational ElevenLabs agent.  
-It includes:
+Maya AI assistant interface — voice and text conversation dashboard powered by ElevenLabs.
 
-- Signed-URL based agent session startup (server-side key handling)
-- Live transcript panel (user + AI markdown responses)
-- Tool call log and error log side panels
-- Header status bar (active node, conversation ID, connection/speaking state)
+## Agent Setup (CC/Cursor)
 
-## Tech Stack
-
-- Next.js (App Router, TypeScript)
-- Tailwind CSS + shadcn/ui
-- ElevenLabs React SDK and ElevenLabs UI components
-
-## Environment Variables
-
-Create a `.env.local` (or configure these in Render):
-
-```bash
-ELEVENLABS_API_KEY=your_elevenlabs_api_key
-NEXT_PUBLIC_ELEVENLABS_AGENT_ID=your_agent_id
-```
-
-Important:
-
-- `ELEVENLABS_API_KEY` is server-only (used in API routes)
-- Never expose `ELEVENLABS_API_KEY` in client code
+Run `bash scripts/mjrvs_agent_setup.sh` at the start of every agent session.
 
 ## Local Development
 
@@ -35,7 +13,7 @@ npm install
 npm run dev
 ```
 
-Then open `http://localhost:3000`.
+Open `http://localhost:3000`.
 
 ## Production Build
 
@@ -44,49 +22,45 @@ npm run build
 npm start
 ```
 
-## Deployment on Render
+## Environment Variables
 
-1. Create a new **Web Service** from this repo.
-2. Use:
-   - Build command: `npm run build`
-   - Start command: `npm start`
-   - Node version: `20+`
-3. Add environment variables:
-   - `ELEVENLABS_API_KEY`
-   - `NEXT_PUBLIC_ELEVENLABS_AGENT_ID`
-4. Deploy.
+Create a `.env.local` for local development. Required variables (names only):
 
-### Render troubleshooting (500 Missing ELEVENLABS_API_KEY)
+| Variable | Description |
+|---|---|
+| `MJRVS_ELEVENLABS_AGENT_ID` | JRVS agent ID (canonical) |
+| `ELEVENLABS_API_KEY` | ElevenLabs API key (server-only) |
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key |
+| `ANTHROPIC_API_KEY` | Anthropic API key |
+| `NEXT_PUBLIC_ELEVENLABS_AGENT_ID` | Agent ID exposed to client (legacy) |
 
-If `/api/signed-url` returns:
+Server routes also read compatibility aliases: `ELEVEN_LABS_API_KEY`, `VITE_ELEVENLABS_API_KEY`, `VITE_ELEVENLABS_AGENT_ID`.
 
-```json
-{"error":"Missing ELEVENLABS_API_KEY"}
-```
+## Key Features
 
-do the following in Render:
+- **Voice mode** — real-time voice conversation with the agent via ElevenLabs SDK
+- **Text mode** — chat-style text conversation with file attachment support
+- **File upload** — attach PDF, text, markdown, JSON, CSV, and image files
+- **Session auto-restart** — sessions automatically restart at 40 minutes to preserve context
+- **Live transcript** — searchable, downloadable transcript with per-message copy
+- **Tool call log** — real-time log of all agent tool dispatches
+- **Error log** — categorized error display with severity indicators
+- **Session history** — browse and review past session transcripts
 
-1. Open the correct Web Service (`maya-jrvs`) and go to **Environment**.
-2. Ensure variables are set exactly as:
-   - `ELEVENLABS_API_KEY`
-   - `NEXT_PUBLIC_ELEVENLABS_AGENT_ID`
-3. Click **Save Changes**.
-4. Trigger a **Manual Deploy** (prefer **Clear build cache & deploy** once).
-5. Re-test:
-   - `GET /api/signed-url`
-   - `POST /api/scribe-token`
+## Tech Stack
 
-The server routes also support compatibility aliases (`VITE_ELEVENLABS_API_KEY`, `VITE_ELEVENLABS_AGENT_ID`, etc.), but the two keys above are the canonical configuration.
+- Next.js (App Router, TypeScript)
+- Tailwind CSS + shadcn/ui
+- ElevenLabs React SDK
 
 ## API Routes
 
-- `GET /api/signed-url`  
-  Retrieves a signed conversation URL from ElevenLabs using server-side API key.
+- `GET /api/signed-url` — server-side signed URL for agent sessions
+- `GET|POST /api/scribe-token` — realtime speech-to-text token
+- `GET|POST /api/agent-config` — agent configuration snapshot
+- `POST /api/mjrvs/summarize-session` — session summary via Supabase edge function
 
-- `GET /api/scribe-token` / `POST /api/scribe-token`  
-  Retrieves a realtime Speech-to-Text token.
+## Branch Protocol
 
-## Notes
-
-- Tool-call visibility depends on what your agent emits in message/debug streams.
-- Node transitions are inferred from agent messages/debug payloads; if none are exposed, header shows `Node: —`.
+Always commit to `main`. Do not create feature branches.
