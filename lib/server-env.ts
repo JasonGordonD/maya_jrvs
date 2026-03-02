@@ -1,3 +1,14 @@
+/**
+ * JRVS Agent ID Resolution — Canonical Source
+ *
+ * MJRVS_ELEVENLABS_AGENT_ID = agent_0401khmtcyfef6hbpcvchjv5jj02 (JRVS only)
+ * ELEVENLABS_AGENT_ID = Betsy B only — NEVER use for JRVS resolution
+ * NEXT_PUBLIC_MJRVS_ELEVENLABS_AGENT_ID = DELETED — do not re-add
+ *
+ * All JRVS agent ID resolution flows through getMjrvsElevenLabsAgentId()
+ * or requireMjrvsElevenLabsAgentId() in this file only.
+ */
+
 const normalizeEnvValue = (value: string | undefined): string | undefined => {
   if (!value) return undefined
   const trimmed = value.trim()
