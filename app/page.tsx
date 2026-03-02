@@ -528,6 +528,13 @@ const statusDotClassMap: Record<ConnectionStatus, string> = {
   disconnecting: "bg-amber-400 animate-pulse",
 }
 
+const statusLabelMap: Record<ConnectionStatus, string> = {
+  connecting: "Connecting...",
+  connected: "Live",
+  disconnected: "Ready",
+  disconnecting: "Ending session...",
+}
+
 const audioModeLabelMap: Record<AudioInputMode, string> = {
   mic: "Mic Only",
   device: "Device Audio",
@@ -1652,16 +1659,55 @@ export default function Home() {
     []
   )
 
+  const wrapToolWithDispatch = useCallback(
+    (
+      toolName: string,
+      handler: (parameters: Record<string, unknown>) => string
+    ): ((parameters: Record<string, unknown>) => string) => {
+      return (parameters: Record<string, unknown>) => {
+        const startTime = Date.now()
+        try {
+          const result = handler(parameters)
+          const durationMs = Date.now() - startTime
+          handleReportToolDispatch({
+            tool_name: toolName,
+            status: "success",
+            duration_ms: durationMs,
+          })
+          return result
+        } catch (error) {
+          const durationMs = Date.now() - startTime
+          handleReportToolDispatch({
+            tool_name: toolName,
+            status: "error",
+            error_message:
+              error instanceof Error ? error.message : String(error),
+            duration_ms: durationMs,
+          })
+          throw error
+        }
+      }
+    },
+    [handleReportToolDispatch]
+  )
+
   const clientTools: ConversationClientTools = useMemo(
     () => ({
-      display_structured_content: handleDisplayStructuredContent,
+      display_structured_content: wrapToolWithDispatch(
+        "display_structured_content",
+        handleDisplayStructuredContent
+      ),
       report_tool_dispatch: handleReportToolDispatch,
-      report_active_node: handleReportActiveNode,
+      report_active_node: wrapToolWithDispatch(
+        "report_active_node",
+        handleReportActiveNode
+      ),
     }),
     [
       handleDisplayStructuredContent,
       handleReportActiveNode,
       handleReportToolDispatch,
+      wrapToolWithDispatch,
     ]
   )
 
@@ -2201,7 +2247,7 @@ export default function Home() {
                     statusDotClassMap[connectionStatus]
                   )}
                 />
-                <span className="capitalize">{connectionStatus}</span>
+                <span>{statusLabelMap[connectionStatus]}</span>
                 {isAgentSpeaking &&
                   !(conversationMode === "text" && isSessionActive) && (
                   <span className="animate-pulse rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] text-emerald-300">
