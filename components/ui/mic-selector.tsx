@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Check, ChevronsUpDown, Mic, MicOff } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -39,29 +39,30 @@ export function MicSelector({
 }: MicSelectorProps) {
   const { devices, loading, error, hasPermission, loadDevices } =
     useAudioDevices()
-  const [selectedDevice, setSelectedDevice] = useState<string>(value || "")
+  const [userSelectedDevice, setUserSelectedDevice] = useState<string>(
+    value || ""
+  )
   const [internalMuted, setInternalMuted] = useState(false)
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
 
-  // Use controlled muted if provided, otherwise use internal state
   const isMuted = muted !== undefined ? muted : internalMuted
 
-  // Update internal state when controlled value changes
-  useEffect(() => {
-    if (value !== undefined) {
-      setSelectedDevice(value)
-    }
-  }, [value])
-
-  // Select first device by default
   const defaultDeviceId = devices[0]?.deviceId || ""
+  const selectedDevice =
+    value !== undefined ? value : userSelectedDevice || defaultDeviceId
+
+  const notifiedDefaultRef = useRef<string>("")
   useEffect(() => {
-    if (!selectedDevice && defaultDeviceId) {
-      const newDevice = defaultDeviceId
-      setSelectedDevice(newDevice)
-      onValueChange?.(newDevice)
+    if (
+      !value &&
+      !userSelectedDevice &&
+      defaultDeviceId &&
+      notifiedDefaultRef.current !== defaultDeviceId
+    ) {
+      notifiedDefaultRef.current = defaultDeviceId
+      onValueChange?.(defaultDeviceId)
     }
-  }, [defaultDeviceId, selectedDevice, onValueChange])
+  }, [defaultDeviceId, userSelectedDevice, onValueChange, value])
 
   const currentDevice = devices.find((d) => d.deviceId === selectedDevice) ||
     devices[0] || {
@@ -71,7 +72,7 @@ export function MicSelector({
 
   const handleDeviceSelect = (deviceId: string, e?: React.MouseEvent) => {
     e?.preventDefault()
-    setSelectedDevice(deviceId)
+    setUserSelectedDevice(deviceId)
     onValueChange?.(deviceId)
   }
 
