@@ -566,6 +566,7 @@ export default function Home() {
   const [errorLogEntries, setErrorLogEntries] = useState<ErrorLogEntry[]>([])
   const [isToolPanelOpen, setIsToolPanelOpen] = useState(true)
   const [mobilePanelTab, setMobilePanelTab] = useState<MobilePanelTab>("tools")
+  const sessionStartRef = useRef<number | null>(null)
   const transcriptRef = useRef<HTMLDivElement>(null)
   const transcriptSearchInputRef = useRef<HTMLInputElement>(null)
   const transcriptMatchElementsRef = useRef<HTMLElement[]>([])
@@ -603,6 +604,9 @@ export default function Home() {
         )
       )
     : sessionDurationSeconds
+
+  const displayedNodeName = useAuthoritativeNodeUpdates ? activeNode : "—"
+  const displayedNodeType = useAuthoritativeNodeUpdates ? activeNodeType : ""
 
   const hasActiveSession = Boolean(
     activeSessionId &&
@@ -1229,27 +1233,30 @@ export default function Home() {
       setConnectionStatus(status)
 
       if (status === "connected") {
-        const startedAt = Date.now()
         const connectedSessionId = conversationId || activeSessionId
 
-        setSessionStartedAt(startedAt)
-        setSessionDurationSeconds(0)
-        if (connectedSessionId) {
+        if (sessionStartRef.current === null) {
+          sessionStartRef.current = Date.now()
+          setSessionStartedAt(sessionStartRef.current)
+          setSessionDurationSeconds(0)
+        }
+        const effectiveStartedAt = sessionStartRef.current
+
+        if (connectedSessionId && effectiveStartedAt !== null) {
           setActiveSessionId(connectedSessionId)
           upsertSessionHistoryEntry({
             sessionId: connectedSessionId,
-            startedAt,
+            startedAt: effectiveStartedAt,
             transcript: messages,
           })
         }
         return
       }
 
-      if (status === "disconnected" || status === "disconnecting") {
-        setSessionStartedAt(null)
-      }
-
       if (status === "disconnected") {
+        sessionStartRef.current = null
+        setSessionStartedAt(null)
+        setUseAuthoritativeNodeUpdates(false)
         const endedSessionId = activeSessionId ?? conversationId
         markSessionEnded(endedSessionId, messages)
         setActiveSessionId(null)
@@ -1267,8 +1274,7 @@ export default function Home() {
   const handleConversationIdChange = useCallback(
     (nextConversationId: string) => {
       setConversationId(nextConversationId)
-      setActiveNode("—")
-      setActiveNodeType("")
+      setUseAuthoritativeNodeUpdates(false)
       if (
         connectionStatus === "connected" ||
         connectionStatus === "connecting" ||
@@ -1295,10 +1301,9 @@ export default function Home() {
     setErrorLogEntries([])
     setUseStructuredToolDispatch(false)
     setUseAuthoritativeNodeUpdates(false)
-    setActiveNode("—")
-    setActiveNodeType("")
     setConversationId("")
     setSystemAudioCaptureLive(false)
+    sessionStartRef.current = null
     setSessionDurationSeconds(0)
     setSessionStartedAt(null)
     setCopiedTranscript(false)
@@ -1387,13 +1392,17 @@ export default function Home() {
 
   const handleReportActiveNode = useCallback(
     (parameters: Record<string, unknown>) => {
-      const nodeName = readParameterString(parameters, "node_name")
+      const rawNodeName = parameters.node_name
+      const nodeName =
+        typeof rawNodeName === "string" ? rawNodeName.trim() : ""
 
       if (!nodeName) {
         return "missing_node_name"
       }
 
-      const nodeType = readParameterString(parameters, "node_type")
+      const rawNodeType = parameters.node_type
+      const nodeType =
+        typeof rawNodeType === "string" ? rawNodeType.trim() : ""
 
       setUseAuthoritativeNodeUpdates(true)
       setActiveNode(nodeName)
@@ -1423,30 +1432,14 @@ export default function Home() {
       if (!useStructuredToolDispatch) {
         appendToolLogEntry(createToolLogEntry(event))
       }
-
-      if (!useAuthoritativeNodeUpdates) {
-        const nodeFromDebug = extractNodeFromMessage(stringifyUnknown(event))
-        if (nodeFromDebug) {
-          setActiveNode(nodeFromDebug)
-          setActiveNodeType("")
-        }
-      }
     },
-    [appendToolLogEntry, useAuthoritativeNodeUpdates, useStructuredToolDispatch]
+    [appendToolLogEntry, useStructuredToolDispatch]
   )
 
   const handleConversationMessage = useCallback((event: ConversationEvent) => {
     console.log("[JRVS] onMessage", event)
     if (!useStructuredToolDispatch) {
       appendToolLogEntry(createToolLogEntry(event.message))
-    }
-
-    if (event.source === "ai" && !useAuthoritativeNodeUpdates) {
-      const detectedNode = extractNodeFromMessage(event.message)
-      if (detectedNode) {
-        setActiveNode(detectedNode)
-        setActiveNodeType("")
-      }
     }
 
     const content = event.message.trim()
@@ -1500,7 +1493,6 @@ export default function Home() {
   }, [
     appendToolLogEntry,
     updateMessages,
-    useAuthoritativeNodeUpdates,
     useStructuredToolDispatch,
   ])
 
@@ -1822,10 +1814,10 @@ export default function Home() {
 
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="text-zinc-400">Node:</span>
-                  <span className="min-w-0 truncate font-medium">{activeNode}</span>
-                  {activeNode !== "—" && activeNodeType && (
+                  <span className="min-w-0 truncate font-medium">{displayedNodeName}</span>
+                  {displayedNodeName !== "—" && displayedNodeType && (
                     <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-300">
-                      {activeNodeType}
+                      {displayedNodeType}
                     </span>
                   )}
                 </div>
