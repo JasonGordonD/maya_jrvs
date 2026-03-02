@@ -32,7 +32,7 @@ from typing import Optional
 import urllib.request
 import urllib.error
 
-AGENT_ID = "agent_0401khmtcyfef6hbpcvchjv5jj02"
+AGENT_ID = os.environ.get("MJRVS_ELEVENLABS_AGENT_ID", "").strip()
 BASE_URL = "https://api.elevenlabs.io/v1/convai"
 MIN_DURATION_SECS = 300  # 5 minutes
 MAX_CONVERSATIONS = 10
@@ -547,6 +547,8 @@ def build_summary_md(
 
 def main():
     api_key = get_api_key()
+    if not AGENT_ID:
+        sys.exit("ERROR: MJRVS_ELEVENLABS_AGENT_ID not set in environment")
 
     # Step 1: Node→LLM map
     node_map, root_llm = build_node_llm_map(api_key)

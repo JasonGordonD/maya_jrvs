@@ -8,7 +8,6 @@
  * All JRVS agent ID resolution flows through getMjrvsElevenLabsAgentId()
  * or requireMjrvsElevenLabsAgentId() in this file only.
  */
-
 const normalizeEnvValue = (value: string | undefined): string | undefined => {
   if (!value) return undefined
   const trimmed = value.trim()
@@ -42,11 +41,16 @@ const API_KEY_ENV_CANDIDATES = [
   "VITE_ELEVENLABS_API_KEY",
 ]
 
-const AGENT_ID_ENV_CANDIDATES = [
-  "NEXT_PUBLIC_ELEVENLABS_AGENT_ID",
-  "ELEVENLABS_AGENT_ID",
-  "VITE_ELEVENLABS_AGENT_ID",
-]
+const MJRVS_AGENT_ID_ENV_CANDIDATES = ["MJRVS_ELEVENLABS_AGENT_ID"]
 
 export const getElevenLabsApiKey = () => readEnvValue(API_KEY_ENV_CANDIDATES)
-export const getElevenLabsAgentId = () => readEnvValue(AGENT_ID_ENV_CANDIDATES)
+export const getMjrvsElevenLabsAgentId = () =>
+  readEnvValue(MJRVS_AGENT_ID_ENV_CANDIDATES)
+
+export const requireMjrvsElevenLabsAgentId = () => {
+  const agentId = getMjrvsElevenLabsAgentId()
+  if (!agentId) {
+    throw new Error("Missing MJRVS_ELEVENLABS_AGENT_ID")
+  }
+  return agentId
+}

@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server"
 
-import { getElevenLabsAgentId, getElevenLabsApiKey } from "@/lib/server-env"
+import {
+  getElevenLabsApiKey,
+  requireMjrvsElevenLabsAgentId,
+} from "@/lib/server-env"
 
 export const runtime = "nodejs"
 
 export async function GET() {
   const apiKey = getElevenLabsApiKey()
-  const agentId = getElevenLabsAgentId()
 
   if (!apiKey) {
     return NextResponse.json(
@@ -15,9 +17,14 @@ export async function GET() {
     )
   }
 
-  if (!agentId) {
+  let agentId: string
+  try {
+    agentId = requireMjrvsElevenLabsAgentId()
+  } catch (error) {
+    const details =
+      error instanceof Error ? error.message : "Missing MJRVS_ELEVENLABS_AGENT_ID"
     return NextResponse.json(
-      { error: "Missing NEXT_PUBLIC_ELEVENLABS_AGENT_ID" },
+      { error: details },
       { status: 500 }
     )
   }

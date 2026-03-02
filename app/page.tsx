@@ -18,6 +18,7 @@ import { Mjrvs_config_inspector_panel } from "@/components/mjrvs_config_inspecto
 import {
   ConversationBar,
   type AudioInputMode,
+  type ConversationClientToolHandler,
   type ConversationMode,
   type ConversationClientTools,
 } from "@/components/ui/conversation-bar"
@@ -528,10 +529,10 @@ const statusDotClassMap: Record<ConnectionStatus, string> = {
   disconnecting: "bg-amber-400 animate-pulse",
 }
 
-const statusLabelMap: Record<ConnectionStatus, string> = {
-  connecting: "Connecting...",
+const connectionStatusLabelMap: Record<ConnectionStatus, string> = {
   connected: "Live",
   disconnected: "Ready",
+  connecting: "Connecting...",
   disconnecting: "Ending session...",
 }
 
@@ -539,6 +540,11 @@ const audioModeLabelMap: Record<AudioInputMode, string> = {
   mic: "Mic Only",
   device: "Device Audio",
   mixed: "Mic + Device Audio",
+}
+
+const conversationModeLabelMap: Record<ConversationMode, string> = {
+  voice: "Voice Mode",
+  text: "Text Mode",
 }
 
 const SESSION_RESTART_WARNING_MINUTES = 40
@@ -1659,46 +1665,100 @@ export default function Home() {
     []
   )
 
-  const wrapToolWithDispatch = useCallback(
-    (
-      toolName: string,
-      handler: (parameters: Record<string, unknown>) => string
-    ): ((parameters: Record<string, unknown>) => string) => {
-      return (parameters: Record<string, unknown>) => {
-        const startTime = Date.now()
-        try {
-          const result = handler(parameters)
-          const durationMs = Date.now() - startTime
-          handleReportToolDispatch({
-            tool_name: toolName,
-            status: "success",
-            duration_ms: durationMs,
-          })
-          return result
-        } catch (error) {
-          const durationMs = Date.now() - startTime
-          handleReportToolDispatch({
-            tool_name: toolName,
-            status: "error",
-            error_message:
-              error instanceof Error ? error.message : String(error),
-            duration_ms: durationMs,
-          })
-          throw error
-        }
-      }
+  const reportClientToolExecution = useCallback(
+    ({
+      toolName,
+      status,
+      errorMessage,
+      errorCode,
+      durationMs,
+    }: {
+      toolName: string
+      status: "success" | "error"
+      errorMessage?: string
+      errorCode?: string
+      durationMs: number
+    }) => {
+      handleReportToolDispatch({
+        tool_name: toolName,
+        status,
+        error_message: errorMessage,
+        error_code: errorCode,
+        duration_ms: durationMs,
+      })
     },
     [handleReportToolDispatch]
   )
 
+  const wrapClientToolHandler = useCallback(
+    (
+      toolName: string,
+      handler: ConversationClientToolHandler
+    ): ConversationClientToolHandler =>
+      async (parameters: Record<string, unknown>) => {
+        const startedAt = Date.now()
+
+        try {
+          const result = await Promise.resolve(handler(parameters))
+          const durationMs = Date.now() - startedAt
+          const normalizedResult =
+            typeof result === "string" ? result.trim().toLowerCase() : ""
+          const isErrorResult =
+            normalizedResult.startsWith("missing_") ||
+            normalizedResult.includes("error") ||
+            normalizedResult.includes("failed")
+
+          reportClientToolExecution({
+            toolName,
+            status: isErrorResult ? "error" : "success",
+            errorMessage: isErrorResult ? result : undefined,
+            errorCode: isErrorResult ? normalizedResult : undefined,
+            durationMs,
+          })
+
+          return result
+        } catch (error) {
+          const durationMs = Date.now() - startedAt
+          const errorMessage =
+            error instanceof Error
+              ? error.message
+              : truncate(cleanInline(stringifyUnknown(error)), 240)
+          const errorCode =
+            typeof error === "object" &&
+            error !== null &&
+            "code" in error &&
+            (error as { code?: unknown }).code !== undefined
+              ? truncate(
+                  cleanInline(stringifyUnknown((error as { code?: unknown }).code)),
+                  80
+                )
+              : undefined
+
+          reportClientToolExecution({
+            toolName,
+            status: "error",
+            errorMessage,
+            errorCode,
+            durationMs,
+          })
+
+          throw error
+        }
+      },
+    [reportClientToolExecution]
+  )
+
   const clientTools: ConversationClientTools = useMemo(
     () => ({
-      display_structured_content: wrapToolWithDispatch(
+      display_structured_content: wrapClientToolHandler(
         "display_structured_content",
         handleDisplayStructuredContent
       ),
-      report_tool_dispatch: handleReportToolDispatch,
-      report_active_node: wrapToolWithDispatch(
+      report_tool_dispatch: wrapClientToolHandler(
+        "report_tool_dispatch",
+        handleReportToolDispatch
+      ),
+      report_active_node: wrapClientToolHandler(
         "report_active_node",
         handleReportActiveNode
       ),
@@ -1707,20 +1767,11 @@ export default function Home() {
       handleDisplayStructuredContent,
       handleReportActiveNode,
       handleReportToolDispatch,
-      wrapToolWithDispatch,
+      wrapClientToolHandler,
     ]
   )
 
-  const handleConversationDebug = useCallback(
-    (event: unknown) => {
-      console.log("[JRVS] onDebug", event)
-    },
-    []
-  )
-
   const handleConversationMessage = useCallback((event: ConversationEvent) => {
-    console.log("[JRVS] onMessage", event)
-
     const content = event.message.trim()
     if (!content) return
     const eventTimestamp = createTimestamp()
@@ -1930,7 +1981,7 @@ export default function Home() {
         >
           {toolLogEntries.length === 0 ? (
             <p className="text-muted-foreground text-sm">
-              Tool calls may not be visible in the current agent configuration
+              No tool calls recorded for this session yet.
             </p>
           ) : (
             toolLogEntries.map((entry) => (
@@ -2247,7 +2298,7 @@ export default function Home() {
                     statusDotClassMap[connectionStatus]
                   )}
                 />
-                <span>{statusLabelMap[connectionStatus]}</span>
+                <span>{connectionStatusLabelMap[connectionStatus]}</span>
                 {isAgentSpeaking &&
                   !(conversationMode === "text" && isSessionActive) && (
                   <span className="animate-pulse rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] text-emerald-300">
@@ -2426,17 +2477,15 @@ export default function Home() {
                     </div>
                   ) : (
                     visibleTranscriptMessages.map((entry) => (
-                      <Message
-                        key={entry.id}
-                        from={entry.source === "user" ? "user" : "assistant"}
-                      >
+                      <Message key={entry.id} from={entry.source === "user" ? "user" : "assistant"}>
                         <MessageContent
                           data-transcript-entry="true"
                           variant={entry.source === "user" ? "contained" : "flat"}
                           className={cn(
                             "relative",
                             entry.source !== "structured" && "pr-9",
-                            entry.source === "ai" && "max-w-[90%]",
+                            entry.source === "ai" &&
+                              "max-w-[90%] rounded-md border border-zinc-700/60 bg-zinc-900/35 px-3 py-2",
                             entry.source === "structured" && "max-w-[95%]"
                           )}
                         >
@@ -2477,7 +2526,12 @@ export default function Home() {
                                   : "text-muted-foreground"
                             )}
                           >
-                            [{entry.timestamp}]
+                            [{entry.timestamp}]{" "}
+                            {entry.source === "user"
+                              ? "You"
+                              : entry.source === "ai"
+                                ? "Maya"
+                                : entry.label || "System"}
                           </p>
 
                           {entry.source === "structured" ? (
@@ -2502,9 +2556,9 @@ export default function Home() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span className="text-muted-foreground text-xs uppercase tracking-wide">
-                      Conversation Mode
+                      Assistant Mode
                     </span>
-                    <div className="bg-muted inline-flex rounded-md p-1">
+                    <div className="inline-flex rounded-md border border-zinc-700 bg-zinc-900/60 p-1">
                       {(["voice", "text"] as ConversationMode[]).map((mode) => (
                         <button
                           key={mode}
@@ -2512,14 +2566,16 @@ export default function Home() {
                           onClick={() => handleConversationModeChange(mode)}
                           disabled={isSessionActive}
                           className={cn(
-                            "rounded px-3 py-1.5 text-sm capitalize transition-colors",
+                            "rounded-md border px-3 py-1.5 text-sm font-medium transition-all",
                             conversationMode === mode
-                              ? "bg-background text-foreground shadow-sm"
-                              : "text-muted-foreground",
+                              ? mode === "voice"
+                                ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-200 shadow-sm"
+                                : "border-sky-500/50 bg-sky-500/15 text-sky-200 shadow-sm"
+                              : "border-transparent text-zinc-300 hover:bg-zinc-800/80",
                             isSessionActive && "cursor-not-allowed opacity-60"
                           )}
                         >
-                          {mode}
+                          {conversationModeLabelMap[mode]}
                         </button>
                       ))}
                     </div>
@@ -2532,9 +2588,10 @@ export default function Home() {
                 </div>
 
                 {showRestartWarning && (
-                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs">
-                    <span className="font-medium text-amber-200">
-                      ⚠️ Session approaching memory limit — auto-restarting in{" "}
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-zinc-700 bg-zinc-900/90 px-3 py-2 text-xs text-zinc-200">
+                    <span className="font-medium text-zinc-100">
+                      <span className="mr-1 text-amber-300">⚠</span>
+                      Session approaching 40-minute limit — auto-restarting in{" "}
                       {restartCountdown}s to maintain performance
                     </span>
                     <div className="flex items-center gap-2">
@@ -2548,7 +2605,7 @@ export default function Home() {
                       <button
                         type="button"
                         onClick={handleDismissRestartWarning}
-                        className="rounded border border-zinc-700 px-2 py-1 text-[11px] text-zinc-200 transition-colors hover:bg-zinc-800"
+                        className="rounded border border-zinc-600 px-2 py-1 text-[11px] text-zinc-200 transition-colors hover:bg-zinc-800"
                       >
                         Dismiss
                       </button>
@@ -2557,7 +2614,6 @@ export default function Home() {
                 )}
 
                 <ConversationBar
-                  agentId={process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID}
                   getSignedUrl={getSignedUrl}
                   inputDeviceId={selectedMicId || undefined}
                   audioInputMode={audioInputMode}
@@ -2566,17 +2622,10 @@ export default function Home() {
                   newSessionSignal={newSessionSignal}
                   clientTools={clientTools}
                   onSystemAudioCaptureChange={setSystemAudioCaptureLive}
-                  onConnect={() => {
-                    console.log("[JRVS] onConnect")
-                  }}
-                  onDisconnect={() => {
-                    console.log("[JRVS] onDisconnect")
-                  }}
                   onConnectionStatusChange={handleConnectionStatusChange}
                   onSpeakingChange={setIsAgentSpeaking}
                   onConversationId={handleConversationIdChange}
                   onMessage={handleConversationMessage}
-                  onDebug={handleConversationDebug}
                   onSendMessage={handleUserTextMessage}
                   onError={handleConversationError}
                   onAgentToolResponse={mjrvs_handle_agent_tool_response}

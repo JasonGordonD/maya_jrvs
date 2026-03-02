@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Check, ChevronsUpDown, Mic, MicOff } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -39,9 +39,8 @@ export function MicSelector({
 }: MicSelectorProps) {
   const { devices, loading, error, hasPermission, loadDevices } =
     useAudioDevices()
-  const [userSelectedDevice, setUserSelectedDevice] = useState<string>(
-    value || ""
-  )
+  const [uncontrolledSelectedDevice, setUncontrolledSelectedDevice] =
+    useState<string>("")
   const [internalMuted, setInternalMuted] = useState(false)
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
 
@@ -49,22 +48,17 @@ export function MicSelector({
 
   const defaultDeviceId = devices[0]?.deviceId || ""
   const selectedDevice =
-    value !== undefined ? value : userSelectedDevice || defaultDeviceId
+    value !== undefined ? value : uncontrolledSelectedDevice
+  const effectiveSelectedDevice = selectedDevice || defaultDeviceId
 
-  const notifiedDefaultRef = useRef<string>("")
+  // Keep parent in sync when uncontrolled mode auto-resolves the default device.
   useEffect(() => {
-    if (
-      !value &&
-      !userSelectedDevice &&
-      defaultDeviceId &&
-      notifiedDefaultRef.current !== defaultDeviceId
-    ) {
-      notifiedDefaultRef.current = defaultDeviceId
-      onValueChange?.(defaultDeviceId)
-    }
-  }, [defaultDeviceId, userSelectedDevice, onValueChange, value])
+    if (value !== undefined) return
+    if (uncontrolledSelectedDevice || !defaultDeviceId) return
+    onValueChange?.(defaultDeviceId)
+  }, [defaultDeviceId, onValueChange, uncontrolledSelectedDevice, value])
 
-  const currentDevice = devices.find((d) => d.deviceId === selectedDevice) ||
+  const currentDevice = devices.find((d) => d.deviceId === effectiveSelectedDevice) ||
     devices[0] || {
       label: loading ? "Loading..." : "No microphone",
       deviceId: "",
@@ -72,7 +66,9 @@ export function MicSelector({
 
   const handleDeviceSelect = (deviceId: string, e?: React.MouseEvent) => {
     e?.preventDefault()
-    setUserSelectedDevice(deviceId)
+    if (value === undefined) {
+      setUncontrolledSelectedDevice(deviceId)
+    }
     onValueChange?.(deviceId)
   }
 
@@ -130,7 +126,7 @@ export function MicSelector({
               className="flex items-center justify-between"
             >
               <span className="truncate">{device.label}</span>
-              {selectedDevice === device.deviceId && (
+              {effectiveSelectedDevice === device.deviceId && (
                 <Check className="h-4 w-4 flex-shrink-0" />
               )}
             </DropdownMenuItem>
@@ -159,7 +155,7 @@ export function MicSelector({
               <div className="bg-accent ml-auto w-16 overflow-hidden rounded-md p-1.5">
                 <LiveWaveform
                   active={isPreviewActive}
-                  deviceId={selectedDevice || defaultDeviceId}
+                  deviceId={effectiveSelectedDevice}
                   mode="static"
                   height={15}
                   barWidth={3}

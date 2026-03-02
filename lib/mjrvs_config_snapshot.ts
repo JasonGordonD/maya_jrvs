@@ -1,5 +1,5 @@
 import {
-  getElevenLabsAgentId as get_elevenlabs_agent_id,
+  getMjrvsElevenLabsAgentId as get_mjrvs_elevenlabs_agent_id,
   getElevenLabsApiKey as get_elevenlabs_api_key,
 } from "@/lib/server-env"
 
@@ -526,14 +526,14 @@ export const mjrvs_snapshot_agent_config = async (options?: {
   agent_id?: string
 }): Promise<mjrvs_config_snapshot_state> => {
   const api_key = get_elevenlabs_api_key()
-  const agent_id = options?.agent_id?.trim() || get_elevenlabs_agent_id()
+  const agent_id = options?.agent_id?.trim() || get_mjrvs_elevenlabs_agent_id()
 
   if (!api_key) {
     throw new Error("Missing ELEVENLABS_API_KEY")
   }
 
   if (!agent_id) {
-    throw new Error("Missing NEXT_PUBLIC_ELEVENLABS_AGENT_ID")
+    throw new Error("Missing MJRVS_ELEVENLABS_AGENT_ID")
   }
 
   const payload = await mjrvs_fetch_agent_config(agent_id, api_key)

@@ -1,66 +1,39 @@
-# JRVS Dashboard
+# JRVS Dashboard (Maya AI Assistant)
 
-Maya AI assistant interface — voice and text conversation dashboard powered by ElevenLabs.
+JRVS Dashboard is the Next.js interface for Maya, the JRVS assistant.  
+It supports live voice/text conversations, transcript review, and operational logs.
 
 ## Agent Setup (CC/Cursor)
-
 Run `bash scripts/mjrvs_agent_setup.sh` at the start of every agent session.
 
-## Local Development
-
-```bash
-npm install
-npm run dev
-```
-
-Open `http://localhost:3000`.
-
-## Production Build
-
-```bash
-npm run build
-npm start
-```
+## Run Locally
+1. `npm install`
+2. `npm run dev`
+3. Open `http://localhost:3000`
 
 ## Environment Variables
+Required:
+- `MJRVS_ELEVENLABS_AGENT_ID`
+- `ELEVENLABS_API_KEY`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `ANTHROPIC_API_KEY`
 
-Create a `.env.local` for local development. Required variables (names only):
-
-| Variable | Description |
-|---|---|
-| `MJRVS_ELEVENLABS_AGENT_ID` | JRVS agent ID (canonical) |
-| `ELEVENLABS_API_KEY` | ElevenLabs API key (server-only) |
-| `SUPABASE_URL` | Supabase project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key |
-| `ANTHROPIC_API_KEY` | Anthropic API key |
-| `NEXT_PUBLIC_ELEVENLABS_AGENT_ID` | Agent ID exposed to client (legacy) |
-
-Server routes also read compatibility aliases: `ELEVEN_LABS_API_KEY`, `VITE_ELEVENLABS_API_KEY`, `VITE_ELEVENLABS_AGENT_ID`.
+Also present in codebase:
+- `ELEVEN_LABS_API_KEY`
+- `VITE_ELEVENLABS_API_KEY`
 
 ## Key Features
+- Voice mode and text mode session control
+- File upload support in text chat mode
+- Tool call log and error log visibility
+- Session history and transcript search/export
+- Automatic session restart at 40 minutes (with warning countdown)
 
-- **Voice mode** — real-time voice conversation with the agent via ElevenLabs SDK
-- **Text mode** — chat-style text conversation with file attachment support
-- **File upload** — attach PDF, text, markdown, JSON, CSV, and image files
-- **Session auto-restart** — sessions automatically restart at 40 minutes to preserve context
-- **Live transcript** — searchable, downloadable transcript with per-message copy
-- **Tool call log** — real-time log of all agent tool dispatches
-- **Error log** — categorized error display with severity indicators
-- **Session history** — browse and review past session transcripts
-
-## Tech Stack
-
-- Next.js (App Router, TypeScript)
-- Tailwind CSS + shadcn/ui
-- ElevenLabs React SDK
-
-## API Routes
-
-- `GET /api/signed-url` — server-side signed URL for agent sessions
-- `GET|POST /api/scribe-token` — realtime speech-to-text token
-- `GET|POST /api/agent-config` — agent configuration snapshot
-- `POST /api/mjrvs/summarize-session` — session summary via Supabase edge function
+## Useful Commands
+- `npm run lint`
+- `npm run build`
+- `npm start`
 
 ## Branch Protocol
-
-Always commit to `main`. Do not create feature branches.
+Always commit and push directly to `main`. Do not create branches for JRVS work orders.
