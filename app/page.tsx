@@ -1388,35 +1388,48 @@ export default function Home() {
       const errorMessage = readParameterString(parameters, "error_message")
       const errorCode = readParameterString(parameters, "error_code")
 
+      const resultSegments: string[] = []
+      if (resultSummary) resultSegments.push(resultSummary)
+      if (status) resultSegments.push(`status: ${status}`)
+      if (errorCode) resultSegments.push(`error_code: ${errorCode}`)
+      if (errorMessage) resultSegments.push(`error: ${errorMessage}`)
+      const mergedResultSummary = resultSegments.join(" | ")
+
       appendToolLogEntry({
         id: createMessageId(),
         timestamp: createTimestamp(),
         toolName: rawToolName,
         action: rawAction || undefined,
         params: paramsText || undefined,
-        resultSummary: resultSummary || undefined,
+        resultSummary: mergedResultSummary || undefined,
       })
 
-      const isError =
-        status === "error" ||
-        status === "failed" ||
-        Boolean(errorMessage)
+      const normalizedStatus = status.toLowerCase()
+      const hasDispatchError =
+        normalizedStatus === "error" ||
+        normalizedStatus === "failed" ||
+        normalizedStatus === "failure" ||
+        normalizedStatus === "tool_error" ||
+        Boolean(errorMessage) ||
+        Boolean(errorCode)
 
-      if (isError) {
-        const message = errorMessage
-          ? `${rawToolName}: ${errorMessage}`
-          : `${rawToolName}: tool dispatch failed (${status || "unknown"})`
+      if (hasDispatchError) {
+        const detailsParts: string[] = []
+        if (status) detailsParts.push(`status=${status}`)
+        if (errorCode) detailsParts.push(`code=${errorCode}`)
+        if (errorMessage) detailsParts.push(errorMessage)
+        const details = detailsParts.join(" | ")
 
         setErrorLogEntries((previous) => [
           ...previous,
           {
             id: createMessageId(),
             timestamp: createTimestamp(),
-            message,
-            severity: classifyErrorSeverity(message),
-            errorType: rawToolName,
+            message: `tool_dispatch: ${rawToolName} - ${details || "unknown dispatch error"}`,
+            severity: "error",
+            errorType: "tool_dispatch",
             code: errorCode || undefined,
-            details: errorMessage || undefined,
+            details: details || undefined,
           },
         ])
       }
@@ -1561,19 +1574,59 @@ export default function Home() {
   }, [])
 
   const mjrvs_handle_agent_tool_response = useCallback(
-    (event: {
-      tool_name: string
-      tool_call_id: string
-      tool_type: string
-      is_error: boolean
-      is_called: boolean
-      event_id: number
-    }) => {
-      if (!event.is_error) return
+    (event: unknown) => {
+      if (!event || typeof event !== "object") return
 
-      const errorType = event.tool_type || event.tool_name
-      const code = event.tool_call_id || String(event.event_id)
-      const details = `Tool "${event.tool_name}" (type: ${event.tool_type}) failed [call_id: ${event.tool_call_id}]`
+      const isErrorValue = findFirstMatchingKeyValue(event, ["is_error", "isError"])
+      const isError =
+        typeof isErrorValue === "boolean"
+          ? isErrorValue
+          : typeof isErrorValue === "number"
+            ? isErrorValue !== 0
+            : typeof isErrorValue === "string"
+              ? ["true", "1", "yes"].includes(isErrorValue.trim().toLowerCase())
+              : false
+      if (!isError) return
+
+      const toolNameValue = findFirstMatchingKeyValue(event, [
+        "tool_name",
+        "toolName",
+      ])
+      const errorTypeValue = findFirstMatchingKeyValue(event, [
+        "errorType",
+        "error_type",
+        "tool_type",
+        "toolType",
+      ])
+      const codeValue = findFirstMatchingKeyValue(event, [
+        "code",
+        "error_code",
+        "tool_call_id",
+        "toolCallId",
+        "event_id",
+        "eventId",
+      ])
+      const detailsValue = findFirstMatchingKeyValue(event, [
+        "details",
+        "error_details",
+        "error_message",
+        "message",
+      ])
+
+      const toolName = toolNameValue
+        ? truncate(cleanInline(stringifyUnknown(toolNameValue)), 120)
+        : ""
+      const errorType = errorTypeValue
+        ? truncate(cleanInline(stringifyUnknown(errorTypeValue)), 120)
+        : toolName || "tool_error"
+      const code = codeValue
+        ? truncate(cleanInline(stringifyUnknown(codeValue)), 120)
+        : ""
+      const details = detailsValue
+        ? truncate(cleanInline(stringifyUnknown(detailsValue)), 320)
+        : toolName
+          ? `Tool "${toolName}" failed without additional details`
+          : "Tool call failed without additional details"
       const message = `${errorType}: ${details}`
 
       setErrorLogEntries((previous) => [
@@ -1582,9 +1635,9 @@ export default function Home() {
           id: createMessageId(),
           timestamp: createTimestamp(),
           message,
-          severity: "error" as ErrorSeverity,
+          severity: "error",
           errorType,
-          code,
+          code: code || undefined,
           details,
         },
       ])
