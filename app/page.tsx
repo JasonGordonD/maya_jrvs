@@ -78,6 +78,11 @@ type ConnectionStatus =
   | "connected"
   | "disconnecting"
 
+type RestartSequencePhase =
+  | "idle"
+  | "awaiting_disconnect"
+  | "awaiting_reconnect"
+
 const createMessageId = () =>
   `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
 
@@ -529,6 +534,10 @@ const audioModeLabelMap: Record<AudioInputMode, string> = {
   mixed: "Mic + Device Audio",
 }
 
+const SESSION_RESTART_WARNING_MINUTES = 40
+const SESSION_RESTART_COUNTDOWN_SECONDS = 60
+const SESSION_RESTART_CHECK_INTERVAL_MS = 30_000
+
 export default function Home() {
   const [messages, setMessages] = useState<TranscriptMessage[]>([])
   const [conversationMode, setConversationMode] =
@@ -545,6 +554,15 @@ export default function Home() {
   const [newSessionSignal, setNewSessionSignal] = useState(0)
   const [sessionDurationSeconds, setSessionDurationSeconds] = useState(0)
   const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null)
+  const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null)
+  const [showRestartWarning, setShowRestartWarning] = useState(false)
+  const [restartCountdown, setRestartCountdown] = useState(
+    SESSION_RESTART_COUNTDOWN_SECONDS
+  )
+  const [postConnectContextUpdate, setPostConnectContextUpdate] = useState<{
+    key: number
+    message: string
+  } | null>(null)
   const [useAuthoritativeNodeUpdates, setUseAuthoritativeNodeUpdates] =
     useState(false)
   const [activeNode, setActiveNode] = useState<string>("—")
@@ -578,6 +596,9 @@ export default function Home() {
   const transcriptMatchElementsRef = useRef<HTMLElement[]>([])
   const toolLogRef = useRef<HTMLDivElement>(null)
   const errorLogRef = useRef<HTMLDivElement>(null)
+  const restartSequencePhaseRef = useRef<RestartSequencePhase>("idle")
+  const restartSequenceKeyRef = useRef(0)
+  const restartWarningDismissedRef = useRef(false)
 
   const viewedSession = useMemo(() => {
     if (!viewedSessionId) return null
@@ -1217,6 +1238,71 @@ export default function Home() {
     [activeSessionId, syncTranscriptToSession]
   )
 
+  const resetRestartWarningState = useCallback(() => {
+    setShowRestartWarning(false)
+    setRestartCountdown(SESSION_RESTART_COUNTDOWN_SECONDS)
+  }, [])
+
+  const triggerSessionAutoRestart = useCallback(() => {
+    if (
+      restartSequencePhaseRef.current !== "idle" ||
+      (connectionStatus !== "connected" && connectionStatus !== "connecting")
+    ) {
+      return
+    }
+
+    const currentConversationId = (activeSessionId ?? conversationId).trim()
+    const sessionDurationMinutes = sessionStartTime
+      ? Math.max(
+          0,
+          Math.floor((Date.now() - sessionStartTime.getTime()) / 60000)
+        )
+      : 0
+    const turnCount = messages.reduce((total, message) => {
+      if (message.source === "user" || message.source === "ai") {
+        return total + 1
+      }
+      return total
+    }, 0)
+
+    void fetch("/api/mjrvs/summarize-session", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        conversation_id: currentConversationId,
+        session_duration_minutes: sessionDurationMinutes,
+        turn_count: turnCount,
+      }),
+    }).catch((error) => {
+      console.error("[JRVS] summarize-session failed", error)
+    })
+
+    restartSequencePhaseRef.current = "awaiting_disconnect"
+    restartWarningDismissedRef.current = false
+    setViewedSessionId(null)
+    resetRestartWarningState()
+
+    setAudioModeRestartSignal((previous) => previous + 1)
+  }, [
+    activeSessionId,
+    connectionStatus,
+    conversationId,
+    messages,
+    resetRestartWarningState,
+    sessionStartTime,
+  ])
+
+  const handleRestartNow = useCallback(() => {
+    triggerSessionAutoRestart()
+  }, [triggerSessionAutoRestart])
+
+  const handleDismissRestartWarning = useCallback(() => {
+    restartWarningDismissedRef.current = true
+    resetRestartWarningState()
+  }, [resetRestartWarningState])
+
   const handleAudioInputModeChange = useCallback(
     (nextMode: AudioInputMode) => {
       if (nextMode === audioInputMode) return
@@ -1257,6 +1343,10 @@ export default function Home() {
       setConnectionStatus(status)
 
       if (status === "connected") {
+        if (sessionStartTime === null) {
+          setSessionStartTime(new Date())
+        }
+
         const connectedSessionId = conversationId || activeSessionId
 
         if (sessionStartRef.current === null) {
@@ -1274,16 +1364,49 @@ export default function Home() {
             transcript: messages,
           })
         }
+
+        if (restartSequencePhaseRef.current === "awaiting_reconnect") {
+          restartSequencePhaseRef.current = "idle"
+          setViewedSessionId(null)
+          updateMessages((previous) => [
+            ...previous,
+            {
+              id: createMessageId(),
+              timestamp: createTimestamp(),
+              source: "structured",
+              message: "🔄 Session restarted — context preserved",
+              label: "System",
+            },
+          ])
+          setPostConnectContextUpdate(null)
+        }
         return
       }
 
       if (status === "disconnected") {
         sessionStartRef.current = null
         setSessionStartedAt(null)
+        setSessionStartTime(null)
+        resetRestartWarningState()
+        restartWarningDismissedRef.current = false
         setUseAuthoritativeNodeUpdates(false)
         const endedSessionId = activeSessionId ?? conversationId
         markSessionEnded(endedSessionId, messages)
         setActiveSessionId(null)
+
+        if (restartSequencePhaseRef.current === "awaiting_disconnect") {
+          restartSequencePhaseRef.current = "awaiting_reconnect"
+          restartSequenceKeyRef.current += 1
+          setPostConnectContextUpdate({
+            key: restartSequenceKeyRef.current,
+            message:
+              "Session context restored. Previous session summary loaded into memory.",
+          })
+          setNewSessionSignal((previous) => previous + 1)
+        } else if (restartSequencePhaseRef.current !== "awaiting_reconnect") {
+          restartSequencePhaseRef.current = "idle"
+          setPostConnectContextUpdate(null)
+        }
       }
     },
     [
@@ -1291,6 +1414,9 @@ export default function Home() {
       conversationId,
       markSessionEnded,
       messages,
+      resetRestartWarningState,
+      sessionStartTime,
+      updateMessages,
       upsertSessionHistoryEntry,
     ]
   )
@@ -1319,6 +1445,8 @@ export default function Home() {
   )
 
   const handleNewSession = useCallback(() => {
+    restartSequencePhaseRef.current = "idle"
+    restartWarningDismissedRef.current = false
     setViewedSessionId(null)
     updateMessages(() => [])
     setToolLogEntries([])
@@ -1329,6 +1457,9 @@ export default function Home() {
     sessionStartRef.current = null
     setSessionDurationSeconds(0)
     setSessionStartedAt(null)
+    setSessionStartTime(null)
+    resetRestartWarningState()
+    setPostConnectContextUpdate(null)
     setCopiedTranscript(false)
     setCopiedToolLog(false)
     setCopiedErrorLog(false)
@@ -1338,7 +1469,51 @@ export default function Home() {
     setActiveTranscriptMatchIndex(-1)
     clearTranscriptHighlights()
     setNewSessionSignal((prev) => prev + 1)
-  }, [clearTranscriptHighlights, updateMessages])
+  }, [clearTranscriptHighlights, resetRestartWarningState, updateMessages])
+
+  useEffect(() => {
+    if (connectionStatus !== "connected" || !sessionStartTime) return
+
+    const maybeShowRestartWarning = () => {
+      if (showRestartWarning || restartWarningDismissedRef.current) return
+      if (restartSequencePhaseRef.current !== "idle") return
+
+      const elapsedMs = Date.now() - sessionStartTime.getTime()
+      if (elapsedMs < SESSION_RESTART_WARNING_MINUTES * 60 * 1000) return
+
+      setRestartCountdown(SESSION_RESTART_COUNTDOWN_SECONDS)
+      setShowRestartWarning(true)
+    }
+
+    maybeShowRestartWarning()
+    const intervalId = window.setInterval(
+      maybeShowRestartWarning,
+      SESSION_RESTART_CHECK_INTERVAL_MS
+    )
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [connectionStatus, sessionStartTime, showRestartWarning])
+
+  useEffect(() => {
+    if (!showRestartWarning || connectionStatus !== "connected") return
+
+    const intervalId = window.setInterval(() => {
+      setRestartCountdown((previous) => {
+        if (previous <= 1) {
+          window.clearInterval(intervalId)
+          triggerSessionAutoRestart()
+          return 0
+        }
+        return previous - 1
+      })
+    }, 1000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [connectionStatus, showRestartWarning, triggerSessionAutoRestart])
 
   const appendToolLogEntry = useCallback((entry: ToolLogEntry | null) => {
     if (!entry) return
@@ -2310,6 +2485,31 @@ export default function Home() {
                   )}
                 </div>
 
+                {showRestartWarning && (
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs">
+                    <span className="font-medium text-amber-200">
+                      ⚠️ Session approaching memory limit — auto-restarting in{" "}
+                      {restartCountdown}s to maintain performance
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleRestartNow}
+                        className="rounded border border-amber-500/60 px-2 py-1 text-[11px] font-medium text-amber-100 transition-colors hover:bg-amber-500/20"
+                      >
+                        Restart Now
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDismissRestartWarning}
+                        className="rounded border border-zinc-700 px-2 py-1 text-[11px] text-zinc-200 transition-colors hover:bg-zinc-800"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <ConversationBar
                   agentId={process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID}
                   getSignedUrl={getSignedUrl}
@@ -2334,6 +2534,7 @@ export default function Home() {
                   onSendMessage={handleUserTextMessage}
                   onError={handleConversationError}
                   onAgentToolResponse={mjrvs_handle_agent_tool_response}
+                  postConnectContextUpdate={postConnectContextUpdate}
                 />
 
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
