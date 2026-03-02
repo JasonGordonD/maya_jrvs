@@ -26,7 +26,6 @@ type mjrvs_config_inspector_panel_props = {
 }
 
 type mjrvs_snapshot_api_response = {
-  agent_id: string | null
   snapshot_at: string | null
   chunks: mjrvs_config_snapshot_chunk[]
   source?: mjrvs_config_snapshot_source
@@ -176,7 +175,6 @@ export function Mjrvs_config_inspector_panel({
   const [snapshot_at, set_snapshot_at] = useState<string | null>(null)
   const [snapshot_source, set_snapshot_source] =
     useState<mjrvs_config_snapshot_source>("live")
-  const [agent_id, set_agent_id] = useState<string | null>(null)
   const [is_loading, set_is_loading] = useState(false)
   const [error_message, set_error_message] = useState<string | null>(null)
   const [expanded_groups, set_expanded_groups] = useState(
@@ -281,7 +279,6 @@ export function Mjrvs_config_inspector_panel({
       const snapshot_response = parsed_body as Partial<mjrvs_snapshot_api_response>
       set_chunks(snapshot_response.chunks ?? [])
       set_snapshot_at(mjrvs_read_string(snapshot_response.snapshot_at))
-      set_agent_id(mjrvs_read_string(snapshot_response.agent_id))
 
       if (
         snapshot_response.source === "cache" ||
@@ -421,7 +418,6 @@ export function Mjrvs_config_inspector_panel({
             </p>
             <p className="mt-1 text-xs text-zinc-500">
               Source: {snapshot_source}
-              {agent_id ? ` · Agent ${agent_id}` : ""}
             </p>
           </div>
 
