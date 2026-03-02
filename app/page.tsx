@@ -36,6 +36,7 @@ type TranscriptMessage = {
   source: "user" | "ai" | "structured"
   message: string
   label?: string
+  images?: ToolResultImage[]
 }
 
 type ToolResultImage = {
@@ -1658,6 +1659,22 @@ export default function Home() {
         resultSummary: mergedResultSummary || undefined,
       })
 
+      const parsed = parseToolResult(resultSummary || paramsText)
+      const dispatchImages = extractImagesFromToolResult(parsed)
+      if (dispatchImages.length > 0) {
+        updateMessages((previous) => [
+          ...previous,
+          {
+            id: createMessageId(),
+            timestamp: createTimestamp(),
+            source: "structured",
+            message: "",
+            label: "Generated Image",
+            images: dispatchImages,
+          },
+        ])
+      }
+
       const normalizedStatus = status.toLowerCase()
       const hasDispatchError =
         normalizedStatus === "error" ||
@@ -1690,7 +1707,7 @@ export default function Home() {
 
       return "ok"
     },
-    [appendToolLogEntry]
+    [appendToolLogEntry, updateMessages]
   )
 
   const handleReportActiveNode = useCallback(
@@ -2528,14 +2545,17 @@ export default function Home() {
                     </div>
                   ) : (
                     visibleTranscriptMessages.map((entry) => {
+                      const directImages = entry.images?.length ? entry.images : []
                       const parsedToolResult =
-                        entry.source === "ai" ? parseToolResult(entry.message) : {}
+                        directImages.length === 0 && entry.source !== "user"
+                          ? parseToolResult(entry.message)
+                          : {}
                       const toolResultImages =
-                        entry.source === "ai"
-                          ? extractImagesFromToolResult(parsedToolResult)
-                          : []
+                        directImages.length > 0
+                          ? directImages
+                          : extractImagesFromToolResult(parsedToolResult)
                       const toolResultDisplayText =
-                        entry.source === "ai" && toolResultImages.length > 0
+                        toolResultImages.length > 0 && entry.source === "ai"
                           ? extractToolResultDisplayText(parsedToolResult)
                           : ""
 
@@ -2600,7 +2620,34 @@ export default function Home() {
                                   : entry.label || "System"}
                             </p>
 
-                            {entry.source === "structured" ? (
+                            {entry.source === "structured" && toolResultImages.length > 0 ? (
+                              <div className="flex flex-col gap-3 mt-2">
+                                {toolResultImages.map((image, index) => (
+                                  <div
+                                    key={`${image.url}-${index}`}
+                                    className="flex flex-col gap-1"
+                                  >
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                      src={image.url}
+                                      alt={
+                                        image.revised_prompt || "Generated image"
+                                      }
+                                      className="max-w-[384px] rounded-lg border border-white/10 object-cover"
+                                      onError={(event) => {
+                                        event.currentTarget.style.display =
+                                          "none"
+                                      }}
+                                    />
+                                    {image.revised_prompt && (
+                                      <p className="text-xs text-white/40 italic">
+                                        {image.revised_prompt}
+                                      </p>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : entry.source === "structured" ? (
                               <Mjrvs_structured_markdown_block
                                 label={entry.label}
                                 content={entry.message}
