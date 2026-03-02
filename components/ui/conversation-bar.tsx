@@ -154,6 +154,14 @@ export interface ConversationBarProps {
     is_called: boolean
     event_id: number
   }) => void
+
+  /**
+   * Sends one contextual update once when connected.
+   */
+  postConnectContextUpdate?: {
+    key: number
+    message: string
+  } | null
 }
 
 export const ConversationBar = React.forwardRef<
@@ -183,6 +191,7 @@ export const ConversationBar = React.forwardRef<
       newSessionSignal,
       clientTools,
       onAgentToolResponse,
+      postConnectContextUpdate,
     },
     ref
   ) => {
@@ -208,6 +217,7 @@ export const ConversationBar = React.forwardRef<
     const previousNewSessionSignalRef = React.useRef<number | undefined>(
       newSessionSignal
     )
+    const consumedPostConnectUpdateKeyRef = React.useRef<number | null>(null)
 
     const stopStream = React.useCallback((stream: MediaStream | null) => {
       if (!stream) return
@@ -769,6 +779,30 @@ export const ConversationBar = React.forwardRef<
       if (!agentState) return
       onConnectionStatusChange?.(agentState)
     }, [agentState, onConnectionStatusChange])
+
+    React.useEffect(() => {
+      if (agentState !== "connected" || !postConnectContextUpdate) return
+      if (
+        consumedPostConnectUpdateKeyRef.current ===
+        postConnectContextUpdate.key
+      ) {
+        return
+      }
+
+      consumedPostConnectUpdateKeyRef.current = postConnectContextUpdate.key
+
+      try {
+        conversation.sendContextualUpdate(postConnectContextUpdate.message)
+      } catch (error) {
+        const errorObj =
+          error instanceof Error
+            ? error
+            : new Error(
+                typeof error === "string" ? error : JSON.stringify(error)
+              )
+        onError?.(errorObj)
+      }
+    }, [agentState, conversation, onError, postConnectContextUpdate])
 
     React.useEffect(() => {
       onSpeakingChange?.(conversation.isSpeaking)
