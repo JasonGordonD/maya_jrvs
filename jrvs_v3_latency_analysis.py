@@ -47,17 +47,7 @@ ANALYSIS_DATE = "2026-03-01"
 def get_api_key() -> str:
     key = os.environ.get("ELEVENLABS_API_KEY", "")
     if not key:
-        # Fallback: read from betsy_b .env
-        env_path = os.path.expanduser("~/betsy_b/.env")
-        if os.path.exists(env_path):
-            with open(env_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if line.startswith("ELEVENLABS_API_KEY="):
-                        key = line.split("=", 1)[1].strip()
-                        break
-    if not key:
-        sys.exit("ERROR: ELEVENLABS_API_KEY not set in environment or ~/betsy_b/.env")
+        sys.exit("ERROR: ELEVENLABS_API_KEY not set in environment")
     return key
 
 
