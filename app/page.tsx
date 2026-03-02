@@ -18,6 +18,7 @@ import { Mjrvs_config_inspector_panel } from "@/components/mjrvs_config_inspecto
 import {
   ConversationBar,
   type AudioInputMode,
+  type ConversationMode,
   type ConversationClientTools,
 } from "@/components/ui/conversation-bar"
 import { Mjrvs_structured_markdown_block } from "@/components/ui/mjrvs_structured_markdown_block"
@@ -530,6 +531,8 @@ const audioModeLabelMap: Record<AudioInputMode, string> = {
 
 export default function Home() {
   const [messages, setMessages] = useState<TranscriptMessage[]>([])
+  const [conversationMode, setConversationMode] =
+    useState<ConversationMode>("voice")
   const [selectedMicId, setSelectedMicId] = useState<string>("")
   const [audioInputMode, setAudioInputMode] = useState<AudioInputMode>("mic")
   const [systemAudioCaptureSupported] = useState(
@@ -617,6 +620,7 @@ export default function Home() {
         connectionStatus === "connecting" ||
         connectionStatus === "disconnecting")
   )
+  const isSessionActive = connectionStatus !== "disconnected"
 
   const orderedSessionHistory = useMemo(() => {
     const sortedByStartTime = [...sessionHistory].sort(
@@ -1235,6 +1239,17 @@ export default function Home() {
       }
     },
     [audioInputMode, connectionStatus, systemAudioCaptureSupported]
+  )
+
+  const handleConversationModeChange = useCallback(
+    (nextMode: ConversationMode) => {
+      if (isSessionActive) return
+      setConversationMode(nextMode)
+      if (nextMode === "text") {
+        setSystemAudioCaptureLive(false)
+      }
+    },
+    [isSessionActive]
   )
 
   const handleConnectionStatusChange = useCallback(
@@ -2012,11 +2027,12 @@ export default function Home() {
                   )}
                 />
                 <span className="capitalize">{connectionStatus}</span>
-                {isAgentSpeaking && (
+                {isAgentSpeaking &&
+                  !(conversationMode === "text" && isSessionActive) && (
                   <span className="animate-pulse rounded-full bg-zinc-800 px-2 py-0.5 text-[11px] text-emerald-300">
                     Speaking...
                   </span>
-                )}
+                  )}
               </div>
             </div>
           </header>
@@ -2262,11 +2278,44 @@ export default function Home() {
               </div>
 
               <div className="mt-4 flex flex-col gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground text-xs uppercase tracking-wide">
+                      Conversation Mode
+                    </span>
+                    <div className="bg-muted inline-flex rounded-md p-1">
+                      {(["voice", "text"] as ConversationMode[]).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => handleConversationModeChange(mode)}
+                          disabled={isSessionActive}
+                          className={cn(
+                            "rounded px-3 py-1.5 text-sm capitalize transition-colors",
+                            conversationMode === mode
+                              ? "bg-background text-foreground shadow-sm"
+                              : "text-muted-foreground",
+                            isSessionActive && "cursor-not-allowed opacity-60"
+                          )}
+                        >
+                          {mode}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {isSessionActive && (
+                    <span className="text-muted-foreground text-xs">
+                      Mode locked while session is active
+                    </span>
+                  )}
+                </div>
+
                 <ConversationBar
                   agentId={process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID}
                   getSignedUrl={getSignedUrl}
                   inputDeviceId={selectedMicId || undefined}
                   audioInputMode={audioInputMode}
+                  conversationMode={conversationMode}
                   forceDisconnectSignal={audioModeRestartSignal}
                   newSessionSignal={newSessionSignal}
                   clientTools={clientTools}
@@ -2288,51 +2337,59 @@ export default function Home() {
                 />
 
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="bg-muted inline-flex rounded-md p-1">
-                      {(
-                        ["mic", "device", "mixed"] as AudioInputMode[]
-                      ).map((mode) => {
-                        const unsupported =
-                          mode !== "mic" && !systemAudioCaptureSupported
-                        return (
-                          <button
-                            key={mode}
-                            type="button"
-                            onClick={() => handleAudioInputModeChange(mode)}
-                            disabled={unsupported}
-                            title={
-                              unsupported
-                                ? "System audio capture not supported in this browser."
-                                : audioModeLabelMap[mode]
-                            }
-                            className={cn(
-                              "rounded px-3 py-1.5 text-sm transition-colors",
-                              audioInputMode === mode
-                                ? "bg-background text-foreground shadow-sm"
-                                : "text-muted-foreground",
-                              unsupported && "cursor-not-allowed opacity-50"
-                            )}
-                          >
-                            {audioModeLabelMap[mode]}
-                          </button>
-                        )
-                      })}
-                    </div>
+                  {conversationMode === "text" && isSessionActive ? (
+                    <span className="text-muted-foreground text-xs">
+                      Text mode active: audio input controls are hidden.
+                    </span>
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="bg-muted inline-flex rounded-md p-1">
+                          {(
+                            ["mic", "device", "mixed"] as AudioInputMode[]
+                          ).map((mode) => {
+                            const unsupported =
+                              mode !== "mic" && !systemAudioCaptureSupported
+                            return (
+                              <button
+                                key={mode}
+                                type="button"
+                                onClick={() => handleAudioInputModeChange(mode)}
+                                disabled={unsupported}
+                                title={
+                                  unsupported
+                                    ? "System audio capture not supported in this browser."
+                                    : audioModeLabelMap[mode]
+                                }
+                                className={cn(
+                                  "rounded px-3 py-1.5 text-sm transition-colors",
+                                  audioInputMode === mode
+                                    ? "bg-background text-foreground shadow-sm"
+                                    : "text-muted-foreground",
+                                  unsupported && "cursor-not-allowed opacity-50"
+                                )}
+                              >
+                                {audioModeLabelMap[mode]}
+                              </button>
+                            )
+                          })}
+                        </div>
 
-                    {systemAudioCaptureLive &&
-                      (audioInputMode === "device" ||
-                        audioInputMode === "mixed") && (
-                        <span className="rounded-full border border-emerald-700/50 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-300">
-                          System audio capture live
-                        </span>
-                      )}
-                  </div>
+                        {systemAudioCaptureLive &&
+                          (audioInputMode === "device" ||
+                            audioInputMode === "mixed") && (
+                            <span className="rounded-full border border-emerald-700/50 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-300">
+                              System audio capture live
+                            </span>
+                          )}
+                      </div>
 
-                  <MicSelector
-                    value={selectedMicId}
-                    onValueChange={(deviceId) => setSelectedMicId(deviceId)}
-                  />
+                      <MicSelector
+                        value={selectedMicId}
+                        onValueChange={(deviceId) => setSelectedMicId(deviceId)}
+                      />
+                    </>
+                  )}
                 </div>
               </div>
 

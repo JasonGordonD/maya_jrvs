@@ -26,8 +26,11 @@ type PendingAttachment = {
 
 const ACCEPTED_FILE_TYPES =
   ".pdf,.txt,.md,.docx,.json,.csv,.png,.jpg,.jpeg"
+const TEXT_ATTACHMENT_CHAR_LIMIT = 4000
+const TEXT_ATTACHMENT_EXTENSIONS = new Set(["txt", "md", "json", "csv"])
 
 export type AudioInputMode = "mic" | "device" | "mixed"
+export type ConversationMode = "voice" | "text"
 export type ConversationClientToolHandler = (
   parameters: Record<string, unknown>
 ) => Promise<string> | string
@@ -116,6 +119,11 @@ export interface ConversationBarProps {
   audioInputMode?: AudioInputMode
 
   /**
+   * Conversation mode - voice playback or chat-only text
+   */
+  conversationMode?: ConversationMode
+
+  /**
    * Callback when system audio capture is currently active
    */
   onSystemAudioCaptureChange?: (isActive: boolean) => void
@@ -169,6 +177,7 @@ export const ConversationBar = React.forwardRef<
       onConversationId,
       inputDeviceId,
       audioInputMode = "mic",
+      conversationMode = "voice",
       onSystemAudioCaptureChange,
       forceDisconnectSignal,
       newSessionSignal,
@@ -182,6 +191,7 @@ export const ConversationBar = React.forwardRef<
       "disconnected" | "connecting" | "connected" | "disconnecting" | null
     >("disconnected")
     const [keyboardOpen, setKeyboardOpen] = React.useState(false)
+    const [isSendingMessage, setIsSendingMessage] = React.useState(false)
     const [textInput, setTextInput] = React.useState("")
     const [pendingAttachments, setPendingAttachments] = React.useState<
       PendingAttachment[]
@@ -319,6 +329,68 @@ export const ConversationBar = React.forwardRef<
       stopStream,
     ])
 
+    const isTextMode = conversationMode === "text"
+
+    const formatFileSize = React.useCallback((bytes: number): string => {
+      if (bytes < 1024) return `${bytes} B`
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+    }, [])
+
+    const buildAttachmentContextUpdate = React.useCallback(
+      async (file: File): Promise<string> => {
+        const extension = file.name.split(".").pop()?.toLowerCase() ?? ""
+        const canReadAsText =
+          file.type.startsWith("text/") ||
+          file.type.includes("json") ||
+          TEXT_ATTACHMENT_EXTENSIONS.has(extension)
+
+        const metadata = [
+          "User uploaded a file for context.",
+          `name: ${file.name}`,
+          `type: ${file.type || "application/octet-stream"}`,
+          `size: ${formatFileSize(file.size)}`,
+        ].join("\n")
+
+        if (!canReadAsText) {
+          return `${metadata}\ncontent: [non-text file content omitted in browser upload path]`
+        }
+
+        try {
+          const textContent = await file.text()
+          const trimmed = textContent.trim()
+          if (!trimmed) {
+            return `${metadata}\ncontent: [file is empty]`
+          }
+
+          if (trimmed.length <= TEXT_ATTACHMENT_CHAR_LIMIT) {
+            return `${metadata}\ncontent:\n${trimmed}`
+          }
+
+          const truncated = trimmed.slice(0, TEXT_ATTACHMENT_CHAR_LIMIT)
+          return `${metadata}\ncontent:\n${truncated}\n\n[truncated ${trimmed.length - TEXT_ATTACHMENT_CHAR_LIMIT} characters]`
+        } catch (error) {
+          console.error("Failed to read attachment", error)
+          return `${metadata}\ncontent: [failed to read file in browser]`
+        }
+      },
+      [formatFileSize]
+    )
+
+    const getTextOnlySessionOverrides = React.useCallback(() => {
+      if (!isTextMode) return {}
+
+      return {
+        textOnly: true,
+        overrides: {
+          conversation: {
+            textOnly: true,
+            text_only: true,
+          },
+        },
+      }
+    }, [isTextMode])
+
     const conversation = useConversation({
       onConnect: () => {
         onConnect?.()
@@ -338,6 +410,7 @@ export const ConversationBar = React.forwardRef<
       onAgentToolResponse: (event) => {
         onAgentToolResponse?.(event)
       },
+      textOnly: isTextMode,
       micMuted: isMuted,
       onError: (error: unknown) => {
         console.error("Error:", error)
@@ -380,11 +453,13 @@ export const ConversationBar = React.forwardRef<
             }
       ) => {
         if (audioInputMode === "mic") {
-          return await conversation.startSession({
+          const sessionOptions = {
             ...sessionConfig,
             ...(inputDeviceId ? { inputDeviceId } : {}),
             ...(clientTools ? { clientTools } : {}),
-          })
+            ...getTextOnlySessionOverrides(),
+          } as Parameters<typeof conversation.startSession>[0]
+          return await conversation.startSession(sessionOptions)
         }
 
         // SDK currently supports inputDeviceId. For custom system/mixed streams,
@@ -402,10 +477,12 @@ export const ConversationBar = React.forwardRef<
         ).getUserMedia = injectedGetUserMedia
 
         try {
-          return await conversation.startSession({
+          const sessionOptions = {
             ...sessionConfig,
             ...(clientTools ? { clientTools } : {}),
-          })
+            ...getTextOnlySessionOverrides(),
+          } as Parameters<typeof conversation.startSession>[0]
+          return await conversation.startSession(sessionOptions)
         } finally {
           ;(
             navigator.mediaDevices as MediaDevices & {
@@ -414,7 +491,13 @@ export const ConversationBar = React.forwardRef<
           ).getUserMedia = originalGetUserMedia
         }
       },
-      [audioInputMode, clientTools, conversation, inputDeviceId]
+      [
+        audioInputMode,
+        clientTools,
+        conversation,
+        getTextOnlySessionOverrides,
+        inputDeviceId,
+      ]
     )
 
     const startConversation = React.useCallback(async () => {
@@ -425,14 +508,37 @@ export const ConversationBar = React.forwardRef<
           const signedUrl = await getSignedUrl()
           let conversationId: string
 
-          if (audioInputMode === "mic") {
-            conversationId = await conversation.startSession({
+          if (isTextMode) {
+            const sessionOptions = {
               signedUrl,
-              connectionType: "websocket",
-              onStatusChange: (status) => setAgentState(status.status),
+              connectionType: "websocket" as const,
+              onStatusChange: (status: {
+                status:
+                  | "disconnected"
+                  | "connecting"
+                  | "connected"
+                  | "disconnecting"
+              }) => setAgentState(status.status),
+              ...(clientTools ? { clientTools } : {}),
+              ...getTextOnlySessionOverrides(),
+            } as Parameters<typeof conversation.startSession>[0]
+            conversationId = await conversation.startSession(sessionOptions)
+          } else if (audioInputMode === "mic") {
+            const sessionOptions = {
+              signedUrl,
+              connectionType: "websocket" as const,
+              onStatusChange: (status: {
+                status:
+                  | "disconnected"
+                  | "connecting"
+                  | "connected"
+                  | "disconnecting"
+              }) => setAgentState(status.status),
               ...(inputDeviceId ? { inputDeviceId } : {}),
               ...(clientTools ? { clientTools } : {}),
-            })
+              ...getTextOnlySessionOverrides(),
+            } as Parameters<typeof conversation.startSession>[0]
+            conversationId = await conversation.startSession(sessionOptions)
           } else {
             const inputStream = await getInputStreamForMode()
             conversationId = await startSessionWithInputStream(inputStream, {
@@ -453,14 +559,37 @@ export const ConversationBar = React.forwardRef<
         }
 
         let conversationId: string
-        if (audioInputMode === "mic") {
-          conversationId = await conversation.startSession({
+        if (isTextMode) {
+          const sessionOptions = {
             agentId,
-            connectionType: "webrtc",
-            onStatusChange: (status) => setAgentState(status.status),
+            connectionType: "webrtc" as const,
+            onStatusChange: (status: {
+              status:
+                | "disconnected"
+                | "connecting"
+                | "connected"
+                | "disconnecting"
+            }) => setAgentState(status.status),
+            ...(clientTools ? { clientTools } : {}),
+            ...getTextOnlySessionOverrides(),
+          } as Parameters<typeof conversation.startSession>[0]
+          conversationId = await conversation.startSession(sessionOptions)
+        } else if (audioInputMode === "mic") {
+          const sessionOptions = {
+            agentId,
+            connectionType: "webrtc" as const,
+            onStatusChange: (status: {
+              status:
+                | "disconnected"
+                | "connecting"
+                | "connected"
+                | "disconnecting"
+            }) => setAgentState(status.status),
             ...(inputDeviceId ? { inputDeviceId } : {}),
             ...(clientTools ? { clientTools } : {}),
-          })
+            ...getTextOnlySessionOverrides(),
+          } as Parameters<typeof conversation.startSession>[0]
+          conversationId = await conversation.startSession(sessionOptions)
         } else {
           const inputStream = await getInputStreamForMode()
           conversationId = await startSessionWithInputStream(inputStream, {
@@ -487,6 +616,8 @@ export const ConversationBar = React.forwardRef<
       conversation,
       inputDeviceId,
       clientTools,
+      getTextOnlySessionOverrides,
+      isTextMode,
       startSessionWithInputStream,
       cleanupPreparedAudioStreams,
     ])
@@ -518,17 +649,65 @@ export const ConversationBar = React.forwardRef<
       }
     }, [agentState, handleEndSession, startConversation])
 
-    const handleSendText = React.useCallback(() => {
-      if (!textInput.trim()) return
-
-      const messageToSend = textInput
-      // V3: implement file upload to agent via client tool or contextual update
-      conversation.sendUserMessage(messageToSend)
-      setTextInput("")
-      onSendMessage?.(messageToSend)
-    }, [conversation, textInput, onSendMessage])
-
     const isConnected = agentState === "connected"
+
+    const handleSendText = React.useCallback(() => {
+      if (!isConnected || isSendingMessage) return
+
+      const messageToSend = textInput.trim()
+      const attachmentsToSend = pendingAttachments
+      if (!messageToSend && attachmentsToSend.length === 0) return
+
+      void (async () => {
+        setIsSendingMessage(true)
+        try {
+          for (const attachment of attachmentsToSend) {
+            const attachmentContext = await buildAttachmentContextUpdate(
+              attachment.file
+            )
+            const attachmentNotice = `[Attachment] ${attachment.file.name} (${formatFileSize(attachment.file.size)})`
+
+            conversation.sendContextualUpdate(attachmentContext)
+            conversation.sendUserMessage(attachmentNotice)
+            onSendMessage?.(attachmentNotice)
+          }
+
+          if (messageToSend) {
+            conversation.sendUserMessage(messageToSend)
+            onSendMessage?.(messageToSend)
+          }
+
+          setTextInput("")
+          setPendingAttachments([])
+          if (fileInputRef.current) {
+            fileInputRef.current.value = ""
+          }
+        } catch (error) {
+          console.error("Error sending message with attachments:", error)
+          const errorObj =
+            error instanceof Error
+              ? error
+              : new Error(
+                  typeof error === "string" ? error : JSON.stringify(error)
+                )
+          onError?.(errorObj)
+        } finally {
+          setIsSendingMessage(false)
+        }
+      })()
+    }, [
+      buildAttachmentContextUpdate,
+      conversation,
+      formatFileSize,
+      isConnected,
+      isSendingMessage,
+      onError,
+      onSendMessage,
+      pendingAttachments,
+      textInput,
+    ])
+    const shouldShowKeyboard = keyboardOpen || (isTextMode && isConnected)
+    const showAudioControls = !(isTextMode && isConnected)
 
     const handleTextChange = React.useCallback(
       (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -596,6 +775,12 @@ export const ConversationBar = React.forwardRef<
     }, [conversation.isSpeaking, onSpeakingChange])
 
     React.useEffect(() => {
+      if (isTextMode && isConnected) {
+        setKeyboardOpen(true)
+      }
+    }, [isConnected, isTextMode])
+
+    React.useEffect(() => {
       const onKeyDown = (event: KeyboardEvent) => {
         if (event.defaultPrevented) return
         if (event.key.toLowerCase() !== "m") return
@@ -660,7 +845,7 @@ export const ConversationBar = React.forwardRef<
         <Card className="m-0 w-full gap-0 border p-0 shadow-lg">
           <div className="flex flex-col-reverse">
             <div>
-              {keyboardOpen && <Separator />}
+              {shouldShowKeyboard && <Separator />}
               <div className="flex items-center justify-between gap-2 p-2">
                 <div className="flex items-center">
                   <input
@@ -682,42 +867,46 @@ export const ConversationBar = React.forwardRef<
                   </Button>
                 </div>
                 <div className="flex items-center">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={toggleMute}
-                    aria-pressed={isMuted}
-                    className={cn(isMuted ? "bg-foreground/5" : "")}
-                    disabled={!isConnected}
-                  >
-                    {isMuted ? <MicOff /> : <Mic />}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setKeyboardOpen((v) => !v)}
-                    aria-pressed={keyboardOpen}
-                    className="relative"
-                    disabled={!isConnected}
-                  >
-                    <Keyboard
-                      className={
-                        "h-5 w-5 transform-gpu transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] " +
-                        (keyboardOpen
-                          ? "scale-75 opacity-0"
-                          : "scale-100 opacity-100")
-                      }
-                    />
-                    <ChevronDown
-                      className={
-                        "absolute inset-0 m-auto h-5 w-5 transform-gpu transition-all delay-50 duration-200 ease-[cubic-bezier(0.34,1.56,0.64,1)] " +
-                        (keyboardOpen
-                          ? "scale-100 opacity-100"
-                          : "scale-75 opacity-0")
-                      }
-                    />
-                  </Button>
-                  <Separator orientation="vertical" className="mx-1 -my-2.5" />
+                  {showAudioControls && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={toggleMute}
+                        aria-pressed={isMuted}
+                        className={cn(isMuted ? "bg-foreground/5" : "")}
+                        disabled={!isConnected}
+                      >
+                        {isMuted ? <MicOff /> : <Mic />}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setKeyboardOpen((v) => !v)}
+                        aria-pressed={keyboardOpen}
+                        className="relative"
+                        disabled={!isConnected}
+                      >
+                        <Keyboard
+                          className={
+                            "h-5 w-5 transform-gpu transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] " +
+                            (keyboardOpen
+                              ? "scale-75 opacity-0"
+                              : "scale-100 opacity-100")
+                          }
+                        />
+                        <ChevronDown
+                          className={
+                            "absolute inset-0 m-auto h-5 w-5 transform-gpu transition-all delay-50 duration-200 ease-[cubic-bezier(0.34,1.56,0.64,1)] " +
+                            (keyboardOpen
+                              ? "scale-100 opacity-100"
+                              : "scale-75 opacity-0")
+                          }
+                        />
+                      </Button>
+                      <Separator orientation="vertical" className="mx-1 -my-2.5" />
+                    </>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -737,7 +926,7 @@ export const ConversationBar = React.forwardRef<
             <div
               className={cn(
                 "overflow-hidden transition-all duration-300 ease-out",
-                keyboardOpen ? "max-h-[220px]" : "max-h-0"
+                shouldShowKeyboard ? "max-h-[220px]" : "max-h-0"
               )}
             >
               <div className="relative px-2 pt-2 pb-2">
@@ -775,7 +964,11 @@ export const ConversationBar = React.forwardRef<
                   size="icon"
                   variant="ghost"
                   onClick={handleSendText}
-                  disabled={!textInput.trim() || !isConnected}
+                  disabled={
+                    (!textInput.trim() && pendingAttachments.length === 0) ||
+                    !isConnected ||
+                    isSendingMessage
+                  }
                   className="absolute right-3 bottom-3 h-8 w-8"
                 >
                   <ArrowUpIcon className="h-4 w-4" />
