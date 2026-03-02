@@ -38,6 +38,11 @@ type TranscriptMessage = {
   label?: string
 }
 
+type ToolResultImage = {
+  url: string
+  revised_prompt: string | null
+}
+
 type SessionHistoryEntry = {
   conversationId: string
   startedAt: number
@@ -108,6 +113,52 @@ const stringifyUnknown = (value: unknown): string => {
   } catch {
     return String(value)
   }
+}
+
+const parseToolResult = (raw: unknown): Record<string, unknown> => {
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw) as Record<string, unknown>
+    } catch {
+      return {}
+    }
+  }
+  if (typeof raw === "object" && raw !== null) return raw as Record<string, unknown>
+  return {}
+}
+
+const extractImagesFromToolResult = (result: unknown): ToolResultImage[] => {
+  if (!result || typeof result !== "object") return []
+  const r = result as Record<string, unknown>
+
+  if (Array.isArray(r.images)) {
+    return (r.images as Array<Record<string, unknown>>)
+      .map((img) => ({
+        url: typeof img.url === "string" ? img.url : "",
+        revised_prompt:
+          typeof img.revised_prompt === "string" ? img.revised_prompt : null,
+      }))
+      .filter((img) => img.url.length > 0)
+  }
+
+  return []
+}
+
+const extractToolResultDisplayText = (result: Record<string, unknown>): string => {
+  const message = typeof result.message === "string" ? result.message.trim() : ""
+  const status = typeof result.status === "string" ? result.status.trim() : ""
+  const model = typeof result.model === "string" ? result.model.trim() : ""
+  const prompt = typeof result.prompt === "string" ? result.prompt.trim() : ""
+  const count = typeof result.count === "number" ? result.count : null
+
+  const segments: string[] = []
+  if (message) segments.push(message)
+  if (status) segments.push(`Status: ${status}`)
+  if (model) segments.push(`Model: ${model}`)
+  if (prompt) segments.push(`Prompt: ${prompt}`)
+  if (typeof count === "number") segments.push(`Images: ${count}`)
+
+  return segments.join("\n")
 }
 
 const readParameterString = (parameters: unknown, key: string): string => {
@@ -2476,78 +2527,129 @@ export default function Home() {
                         : "Start a conversation to see live transcript messages."}
                     </div>
                   ) : (
-                    visibleTranscriptMessages.map((entry) => (
-                      <Message key={entry.id} from={entry.source === "user" ? "user" : "assistant"}>
-                        <MessageContent
-                          data-transcript-entry="true"
-                          variant={entry.source === "user" ? "contained" : "flat"}
-                          className={cn(
-                            "relative",
-                            entry.source !== "structured" && "pr-9",
-                            entry.source === "ai" &&
-                              "max-w-[90%] rounded-md border border-zinc-700/60 bg-zinc-900/35 px-3 py-2",
-                            entry.source === "structured" && "max-w-[95%]"
-                          )}
-                        >
-                          {entry.source !== "structured" && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                void handleCopyMessage(entry)
-                              }}
-                              className={cn(
-                                "absolute top-2 right-2 inline-flex h-6 w-6 items-center justify-center rounded-md border border-zinc-800 bg-zinc-950/90 text-zinc-100 opacity-0 transition-opacity",
-                                "group-hover:opacity-100 focus-visible:opacity-100"
-                              )}
-                              title={
-                                copiedMessageId === entry.id ? "Copied" : "Copy message"
-                              }
-                              aria-label={
-                                copiedMessageId === entry.id
-                                  ? "Message copied"
-                                  : "Copy message"
-                              }
-                            >
-                              {copiedMessageId === entry.id ? (
-                                <Check className="h-3.5 w-3.5 text-emerald-400" />
-                              ) : (
-                                <Copy className="h-3.5 w-3.5 text-zinc-300" />
-                              )}
-                            </button>
-                          )}
+                    visibleTranscriptMessages.map((entry) => {
+                      const parsedToolResult =
+                        entry.source === "ai" ? parseToolResult(entry.message) : {}
+                      const toolResultImages =
+                        entry.source === "ai"
+                          ? extractImagesFromToolResult(parsedToolResult)
+                          : []
+                      const toolResultDisplayText =
+                        entry.source === "ai" && toolResultImages.length > 0
+                          ? extractToolResultDisplayText(parsedToolResult)
+                          : ""
 
-                          <p
+                      return (
+                        <Message
+                          key={entry.id}
+                          from={entry.source === "user" ? "user" : "assistant"}
+                        >
+                          <MessageContent
+                            data-transcript-entry="true"
+                            variant={entry.source === "user" ? "contained" : "flat"}
                             className={cn(
-                              "mb-1 font-mono text-[11px]",
-                              entry.source === "user"
-                                ? "text-primary-foreground/70"
-                                : entry.source === "structured"
-                                  ? "text-sky-300/80"
-                                  : "text-muted-foreground"
+                              "relative",
+                              entry.source !== "structured" && "pr-9",
+                              entry.source === "ai" &&
+                                "max-w-[90%] rounded-md border border-zinc-700/60 bg-zinc-900/35 px-3 py-2",
+                              entry.source === "structured" && "max-w-[95%]"
                             )}
                           >
-                            [{entry.timestamp}]{" "}
-                            {entry.source === "user"
-                              ? "You"
-                              : entry.source === "ai"
-                                ? "Maya"
-                                : entry.label || "System"}
-                          </p>
+                            {entry.source !== "structured" && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void handleCopyMessage(entry)
+                                }}
+                                className={cn(
+                                  "absolute top-2 right-2 inline-flex h-6 w-6 items-center justify-center rounded-md border border-zinc-800 bg-zinc-950/90 text-zinc-100 opacity-0 transition-opacity",
+                                  "group-hover:opacity-100 focus-visible:opacity-100"
+                                )}
+                                title={
+                                  copiedMessageId === entry.id ? "Copied" : "Copy message"
+                                }
+                                aria-label={
+                                  copiedMessageId === entry.id
+                                    ? "Message copied"
+                                    : "Copy message"
+                                }
+                              >
+                                {copiedMessageId === entry.id ? (
+                                  <Check className="h-3.5 w-3.5 text-emerald-400" />
+                                ) : (
+                                  <Copy className="h-3.5 w-3.5 text-zinc-300" />
+                                )}
+                              </button>
+                            )}
 
-                          {entry.source === "structured" ? (
-                            <Mjrvs_structured_markdown_block
-                              label={entry.label}
-                              content={entry.message}
-                              on_copy={copyToClipboard}
-                            />
-                          ) : entry.source === "ai" ? (
-                            <Response>{entry.message}</Response>
-                          ) : (
-                            <p className="whitespace-pre-wrap">{entry.message}</p>
-                          )}
-                        </MessageContent>
-                      </Message>
-                    ))
+                            <p
+                              className={cn(
+                                "mb-1 font-mono text-[11px]",
+                                entry.source === "user"
+                                  ? "text-primary-foreground/70"
+                                  : entry.source === "structured"
+                                    ? "text-sky-300/80"
+                                    : "text-muted-foreground"
+                              )}
+                            >
+                              [{entry.timestamp}]{" "}
+                              {entry.source === "user"
+                                ? "You"
+                                : entry.source === "ai"
+                                  ? "Maya"
+                                  : entry.label || "System"}
+                            </p>
+
+                            {entry.source === "structured" ? (
+                              <Mjrvs_structured_markdown_block
+                                label={entry.label}
+                                content={entry.message}
+                                on_copy={copyToClipboard}
+                              />
+                            ) : entry.source === "ai" ? (
+                              <div className="flex flex-col gap-2">
+                                {toolResultImages.length === 0 ? (
+                                  <Response>{entry.message}</Response>
+                                ) : (
+                                  <>
+                                    {toolResultDisplayText && (
+                                      <Response>{toolResultDisplayText}</Response>
+                                    )}
+                                    <div className="mt-2 flex flex-col gap-3">
+                                      {toolResultImages.map((image, index) => (
+                                        <div
+                                          key={`${image.url}-${index}`}
+                                          className="flex flex-col gap-1"
+                                        >
+                                          <img
+                                            src={image.url}
+                                            alt={
+                                              image.revised_prompt || "Generated image"
+                                            }
+                                            className="max-w-[384px] rounded-lg border border-white/10 object-cover"
+                                            onError={(event) => {
+                                              event.currentTarget.style.display =
+                                                "none"
+                                            }}
+                                          />
+                                          {image.revised_prompt && (
+                                            <p className="text-xs text-white/40 italic">
+                                              {image.revised_prompt}
+                                            </p>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            ) : (
+                              <p className="whitespace-pre-wrap">{entry.message}</p>
+                            )}
+                          </MessageContent>
+                        </Message>
+                      )
+                    })
                   )}
                 </div>
               </div>
