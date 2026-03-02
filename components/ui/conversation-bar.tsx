@@ -134,6 +134,18 @@ export interface ConversationBarProps {
    * Client-side tools that can be invoked by the agent.
    */
   clientTools?: ConversationClientTools
+
+  /**
+   * Callback when an agent tool response event is received
+   */
+  onAgentToolResponse?: (event: {
+    tool_name: string
+    tool_call_id: string
+    tool_type: string
+    is_error: boolean
+    is_called: boolean
+    event_id: number
+  }) => void
 }
 
 export const ConversationBar = React.forwardRef<
@@ -161,6 +173,7 @@ export const ConversationBar = React.forwardRef<
       forceDisconnectSignal,
       newSessionSignal,
       clientTools,
+      onAgentToolResponse,
     },
     ref
   ) => {
@@ -321,6 +334,9 @@ export const ConversationBar = React.forwardRef<
       },
       onDebug: (event) => {
         onDebug?.(event)
+      },
+      onAgentToolResponse: (event) => {
+        onAgentToolResponse?.(event)
       },
       micMuted: isMuted,
       onError: (error: unknown) => {

@@ -58,13 +58,16 @@ type ToolLogEntry = {
   resultSummary?: string
 }
 
-type ErrorSeverity = "auth" | "timeout" | "connection" | "other"
+type ErrorSeverity = "auth" | "timeout" | "connection" | "error" | "other"
 
 type ErrorLogEntry = {
   id: string
   timestamp: string
   message: string
   severity: ErrorSeverity
+  errorType?: string
+  code?: string
+  details?: string
 }
 
 type MobilePanelTab = "tools" | "errors"
@@ -506,6 +509,8 @@ const errorSeverityClassMap: Record<ErrorSeverity, string> = {
     "border-yellow-200 bg-yellow-50 text-yellow-900 dark:border-yellow-900/50 dark:bg-yellow-950/40 dark:text-yellow-100",
   connection:
     "border-zinc-300 bg-zinc-100 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100",
+  error:
+    "border-red-300 bg-red-50 text-red-900 dark:border-red-800/60 dark:bg-red-950/50 dark:text-red-100",
   other:
     "border-zinc-300 bg-zinc-50 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100",
 }
@@ -1035,7 +1040,13 @@ export default function Home() {
   const handleCopyErrorLog = useCallback(async () => {
     if (errorLogEntries.length === 0) return
     const payload = errorLogEntries
-      .map((entry) => `[${entry.timestamp}] ${entry.message}`)
+      .map((entry) => {
+        const segments = [`[${entry.timestamp}] ${entry.message}`]
+        if (entry.errorType) segments.push(`type: ${entry.errorType}`)
+        if (entry.code) segments.push(`code: ${entry.code}`)
+        if (entry.details) segments.push(`details: ${entry.details}`)
+        return segments.join(" | ")
+      })
       .join("\n")
     const copied = await copyToClipboard(payload)
     if (copied) {
@@ -1373,6 +1384,9 @@ export default function Home() {
       const rawAction = readParameterString(parameters, "action")
       const paramsText = readParameterString(parameters, "params")
       const resultSummary = readParameterString(parameters, "result_summary")
+      const status = readParameterString(parameters, "status")
+      const errorMessage = readParameterString(parameters, "error_message")
+      const errorCode = readParameterString(parameters, "error_code")
 
       appendToolLogEntry({
         id: createMessageId(),
@@ -1382,6 +1396,30 @@ export default function Home() {
         params: paramsText || undefined,
         resultSummary: resultSummary || undefined,
       })
+
+      const isError =
+        status === "error" ||
+        status === "failed" ||
+        Boolean(errorMessage)
+
+      if (isError) {
+        const message = errorMessage
+          ? `${rawToolName}: ${errorMessage}`
+          : `${rawToolName}: tool dispatch failed (${status || "unknown"})`
+
+        setErrorLogEntries((previous) => [
+          ...previous,
+          {
+            id: createMessageId(),
+            timestamp: createTimestamp(),
+            message,
+            severity: classifyErrorSeverity(message),
+            errorType: rawToolName,
+            code: errorCode || undefined,
+            details: errorMessage || undefined,
+          },
+        ])
+      }
 
       return "ok"
     },
@@ -1522,6 +1560,38 @@ export default function Home() {
     ])
   }, [])
 
+  const mjrvs_handle_agent_tool_response = useCallback(
+    (event: {
+      tool_name: string
+      tool_call_id: string
+      tool_type: string
+      is_error: boolean
+      is_called: boolean
+      event_id: number
+    }) => {
+      if (!event.is_error) return
+
+      const errorType = event.tool_type || event.tool_name
+      const code = event.tool_call_id || String(event.event_id)
+      const details = `Tool "${event.tool_name}" (type: ${event.tool_type}) failed [call_id: ${event.tool_call_id}]`
+      const message = `${errorType}: ${details}`
+
+      setErrorLogEntries((previous) => [
+        ...previous,
+        {
+          id: createMessageId(),
+          timestamp: createTimestamp(),
+          message,
+          severity: "error" as ErrorSeverity,
+          errorType,
+          code,
+          details,
+        },
+      ])
+    },
+    []
+  )
+
   const renderToolLogPanel = () => (
     <div className="bg-card flex min-h-0 h-full flex-col overflow-hidden rounded-xl border shadow-sm">
       <div className="flex items-center gap-2 border-b px-4 py-3">
@@ -1648,6 +1718,17 @@ export default function Home() {
               <p className="mt-1 break-words whitespace-pre-wrap">
                 {entry.message}
               </p>
+              {entry.errorType && (
+                <p className="mt-1 text-[11px] opacity-75">
+                  <span className="font-medium">Type:</span> {entry.errorType}
+                  {entry.code && <> | <span className="font-medium">Code:</span> {entry.code}</>}
+                </p>
+              )}
+              {entry.details && (
+                <p className="mt-0.5 text-[11px] opacity-75 break-words whitespace-pre-wrap">
+                  {entry.details}
+                </p>
+              )}
             </div>
           ))
         )}
@@ -2150,6 +2231,7 @@ export default function Home() {
                   onDebug={handleConversationDebug}
                   onSendMessage={handleUserTextMessage}
                   onError={handleConversationError}
+                  onAgentToolResponse={mjrvs_handle_agent_tool_response}
                 />
 
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
