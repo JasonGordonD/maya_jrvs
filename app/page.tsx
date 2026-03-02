@@ -537,8 +537,6 @@ export default function Home() {
   const [newSessionSignal, setNewSessionSignal] = useState(0)
   const [sessionDurationSeconds, setSessionDurationSeconds] = useState(0)
   const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null)
-  const [useStructuredToolDispatch, setUseStructuredToolDispatch] =
-    useState(false)
   const [useAuthoritativeNodeUpdates, setUseAuthoritativeNodeUpdates] =
     useState(false)
   const [activeNode, setActiveNode] = useState<string>("—")
@@ -1299,7 +1297,6 @@ export default function Home() {
     updateMessages(() => [])
     setToolLogEntries([])
     setErrorLogEntries([])
-    setUseStructuredToolDispatch(false)
     setUseAuthoritativeNodeUpdates(false)
     setConversationId("")
     setSystemAudioCaptureLive(false)
@@ -1369,12 +1366,13 @@ export default function Home() {
       if (!rawToolName) {
         return "missing_tool_name"
       }
+      if (rawToolName.toLowerCase() === "tool-dispatch") {
+        return "ignored_tool_dispatch"
+      }
 
       const rawAction = readParameterString(parameters, "action")
       const paramsText = readParameterString(parameters, "params")
       const resultSummary = readParameterString(parameters, "result_summary")
-
-      setUseStructuredToolDispatch(true)
 
       appendToolLogEntry({
         id: createMessageId(),
@@ -1429,18 +1427,12 @@ export default function Home() {
   const handleConversationDebug = useCallback(
     (event: unknown) => {
       console.log("[JRVS] onDebug", event)
-      if (!useStructuredToolDispatch) {
-        appendToolLogEntry(createToolLogEntry(event))
-      }
     },
-    [appendToolLogEntry, useStructuredToolDispatch]
+    []
   )
 
   const handleConversationMessage = useCallback((event: ConversationEvent) => {
     console.log("[JRVS] onMessage", event)
-    if (!useStructuredToolDispatch) {
-      appendToolLogEntry(createToolLogEntry(event.message))
-    }
 
     const content = event.message.trim()
     if (!content) return
@@ -1490,11 +1482,7 @@ export default function Home() {
         },
       ]
     })
-  }, [
-    appendToolLogEntry,
-    updateMessages,
-    useStructuredToolDispatch,
-  ])
+  }, [updateMessages])
 
   const handleUserTextMessage = useCallback((message: string) => {
     const content = message.trim()
