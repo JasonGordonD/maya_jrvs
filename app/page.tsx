@@ -1452,7 +1452,7 @@ export default function Home() {
 
         // Start Hume sentiment pipeline
         const humeKey = process.env.NEXT_PUBLIC_HUME_API_KEY
-        if (humeKey) {
+        if (humeKey && !sentimentOrchestratorRef.current) {
           sentimentOrchestratorRef.current = new SentimentOrchestrator({
             humeApiKey: humeKey,
             chunkIntervalMs: 2000,

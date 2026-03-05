@@ -32,6 +32,7 @@ export class SentimentOrchestrator {
   private isRunning = false;
   private pcmBuffer: Float32Array[] = [];
   private flushTimer: ReturnType<typeof setInterval> | null = null;
+  private lastChunkSentAt = 0;
 
   constructor(config: SentimentOrchestratorConfig) {
     this.config = config;
@@ -92,7 +93,13 @@ export class SentimentOrchestrator {
   }
 
   private flushPcmBuffer(): void {
-    if (!this.client.isConnected() || this.pcmBuffer.length === 0) return;
+    this.maybeSendKeepalive();
+
+    if (this.pcmBuffer.length === 0) return;
+    if (!this.client.isConnected()) {
+      this.pcmBuffer = [];
+      return;
+    }
 
     const totalSamples = this.pcmBuffer.reduce((sum, chunk) => sum + chunk.length, 0);
     const merged = new Float32Array(totalSamples);
@@ -103,9 +110,25 @@ export class SentimentOrchestrator {
     }
     this.pcmBuffer = [];
 
-    const wav = this.buildWav(merged);
+    const MAX_SAMPLES = 80000; // 5 seconds at 16kHz — hard cap against Hume's limit
+    const capped = merged.length > MAX_SAMPLES ? merged.slice(merged.length - MAX_SAMPLES) : merged;
+
+    const wav = this.buildWav(capped);
     const base64 = this.arrayBufferToBase64(wav);
     this.client.sendAudioChunk(base64);
+    this.lastChunkSentAt = Date.now();
+  }
+
+  private maybeSendKeepalive(): void {
+    if (!this.client.isConnected()) return;
+    if (Date.now() - this.lastChunkSentAt < 45000) return;
+
+    // Send 0.5s of silence to prevent Hume keepalive ping timeout (1011)
+    const silentSamples = new Float32Array(SAMPLE_RATE / 2);
+    const wav = this.buildWav(silentSamples);
+    const base64 = this.arrayBufferToBase64(wav);
+    this.client.sendAudioChunk(base64);
+    this.lastChunkSentAt = Date.now();
   }
 
   private buildWav(pcmFloat32: Float32Array): ArrayBuffer {
