@@ -37,6 +37,7 @@ JRVS Dashboard is a live operations console for Maya:
 - **Dual interaction modes** (voice mode and text mode).
 - **Transcript + observability tooling** (search/copy/download, tool logs, error logs).
 - **Session continuity pipeline** (40-minute auto-restart + Supabase Edge summarization).
+- **Real-time sentiment pipeline** (Hume AI prosody/burst analysis → contextual updates → Maya tone adaptation).
 - **Agent configuration introspection** via snapshot APIs and transfer-map UI.
 
 The app is designed for active production-style operation, not just demo chat.
@@ -208,7 +209,27 @@ These tool handlers:
   - Jump-to-node behavior from map entries
 - Copy full chunk content (JSON/text).
 
-### 12) Performance analysis support
+### 12) Real-time sentiment pipeline (Hume AI)
+
+- Activates automatically when `NEXT_PUBLIC_HUME_API_KEY` is set; no-ops silently if not.
+- Opens a parallel mic capture (`getUserMedia`) independent of ElevenLabs audio routing.
+- Captures PCM audio, encodes 2-second WAV chunks, streams to Hume AI WebSocket (`wss://api.hume.ai/v0/stream/models`) using `prosody` + `burst` models simultaneously.
+- Merges `prosody` and `burst` emotion scores (burst scores take precedence on overlap).
+- Filters results through a Maya-tuned `MEANINGFUL_EMOTIONS` set (20 professional-context emotions; excludes intimate/romantic emotions present in the Minka Moor version).
+- Score threshold: `0.25` — emotions below this are ignored.
+- Injects formatted emotional state string into the live session via `sendContextualUpdate()` every ~2 seconds.
+- Deduplication: identical consecutive formatted strings are dropped.
+- Stale-closure-safe: `sendContextualUpdate` is captured via a ref updated on `agentState` change, not from a stale render closure.
+- Stops and cleans up all resources (mic stream, AudioContext, WebSocket) on session disconnect.
+- Reconnect logic: up to 3 auto-reconnect attempts with exponential backoff on WebSocket drop.
+- Maya adapts tone and pacing based on injected state without acknowledging the detection system (governed by `<sentiment_awareness>` block in root prompt — applied manually by operator).
+
+**Injection format:**
+```
+[Caller emotional state detected: Frustration (0.78), Anxiety (0.61), Tiredness (0.42). Calibrate your tone and response to match or address this state.]
+```
+
+### 14) Performance analysis support
 
 - Offline analysis script:
   - `jrvs_v3_latency_analysis.py`
@@ -235,6 +256,11 @@ Browser UI (Next.js client)
   |                                                     |-- embed via Voyage
   |                                                     '-- insert into Supabase Postgres
   |
+  |-- (optional) Hume AI WebSocket (browser-direct) -> wss://api.hume.ai/v0/stream/models
+  |     mic audio (PCM → WAV, 2s chunks)                |
+  |     prosody + burst emotion scores <----------------'
+  |     sendContextualUpdate() → ElevenLabs session
+  |
   '-- (optional) GET/POST /api/scribe-token --------> ElevenLabs Scribe realtime token
 ```
 
@@ -251,6 +277,16 @@ Browser UI (Next.js client)
 2. API returns cached snapshot if available (or live if requested).
 3. Snapshot decomposes config into human-readable component chunks.
 4. UI displays grouped chunks + transfer map.
+
+### Flow D: Hume real-time sentiment injection
+
+1. Session connects → `handleConnectionStatusChange` fires with `status === "connected"`.
+2. `SentimentOrchestrator.start()` opens mic stream and Hume WebSocket.
+3. Every 2 seconds, PCM buffer is flushed → encoded as 16-bit WAV → sent to Hume as base64.
+4. Hume returns prosody + burst emotion scores.
+5. Scores merged, filtered by `MEANINGFUL_EMOTIONS` set and `SCORE_THRESHOLD (0.25)`.
+6. If meaningful emotions remain and formatted string differs from last injection: `sendContextualUpdate(formatted)` fires into live ElevenLabs session.
+7. Session disconnects → `SentimentOrchestrator.stop()` tears down mic stream, AudioContext, WebSocket.
 
 ### Flow C: Auto-restart continuity at ~40 minutes
 
@@ -631,6 +667,10 @@ components/
     response.tsx                           # Streamdown markdown renderer
     mjrvs_structured_markdown_block.tsx    # Structured markdown block renderer
   mjrvs_config_inspector_panel.tsx         # Agent config inspector side panel
+
+services/
+  humeSentimentClient.ts                   # Hume AI WebSocket client (prosody + burst)
+  sentimentOrchestrator.ts                 # Mic capture, WAV encoding, flush loop, injection
 
 lib/
   server-env.ts                            # Canonical env + agent id resolution
