@@ -1,10 +1,8 @@
 "use client"
 
 import {
-  Children,
   createContext,
   forwardRef,
-  isValidElement,
   useCallback,
   useContext,
   useEffect,
@@ -273,7 +271,7 @@ const SpeechInput = forwardRef<HTMLDivElement, SpeechInputProps>(
         startRequestIdRef.current += 1
         scribe.disconnect()
       }
-    }, [scribe.disconnect])
+    }, [scribe])
 
     return (
       <SpeechInputContext.Provider value={contextValue}>

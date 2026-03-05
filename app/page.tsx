@@ -300,90 +300,7 @@ const formatSessionStartTime = (timestamp: number): string =>
     second: "2-digit",
   })
 
-const normalizeNodeLabel = (value: string): string =>
-  value
-    .replace(/^["'`[\s]+|["'`\].,;:\s]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
 
-const extractNodeFromMessage = (message: string): string | null => {
-  const patterns = [
-    /\bnode\s*[:=-]\s*([A-Za-z0-9 .()'/-]{2,80})/i,
-    /\bactive\s+node\s*[:=-]\s*([A-Za-z0-9 .()'/-]{2,80})/i,
-    /\bswitch(?:ing)?\s+to\s+([A-Za-z0-9 .()'/-]{2,80})/i,
-    /\brout(?:e|ed)\s+to\s+([A-Za-z0-9 .()'/-]{2,80})/i,
-    /"node"\s*:\s*"([^"]{2,80})"/i,
-    /"activeNode"\s*:\s*"([^"]{2,80})"/i,
-  ]
-
-  for (const pattern of patterns) {
-    const match = message.match(pattern)
-    if (!match?.[1]) continue
-
-    const normalized = normalizeNodeLabel(match[1])
-    if (normalized && normalized.length <= 80) {
-      return normalized
-    }
-  }
-
-  return null
-}
-
-const toolKeywordPattern =
-  /\b(tool|dispatch|mjrvs_|tool_call|function_call|query|result)\b/i
-
-const extractToolNameFromText = (text: string): string | null => {
-  const match =
-    text.match(/\b(mjrvs_[a-z0-9_:-]+)\b/i) ??
-    text.match(/\btool(?:_name)?\s*[:=]\s*["']?([a-z0-9_.:-]+)["']?/i) ??
-    text.match(
-      /\b(?:function|name)\s*[:=]\s*["']?([a-z0-9_.:-]*tool[a-z0-9_.:-]*)["']?/i
-    )
-
-  return match?.[1] ? match[1].trim() : null
-}
-
-const extractParametersFromText = (text: string): string | undefined => {
-  const queryMatch = text.match(
-    /\bquery\b[^a-z0-9]{0,3}(?:"([^"]+)"|'([^']+)'|([^,\n;]+))/i
-  )
-  if (queryMatch) {
-    const value = queryMatch[1] || queryMatch[2] || queryMatch[3] || ""
-    return `query: "${truncate(cleanInline(value), 60)}"`
-  }
-
-  const paramsMatch = text.match(
-    /\b(params?|arguments?|input)\b[^a-z0-9]{0,3}(\{[\s\S]*?\}|\[[\s\S]*?\]|"[^"]+"|'[^']+'|[^,\n;]+)/i
-  )
-  if (paramsMatch?.[2]) {
-    return `${paramsMatch[1]}: ${truncate(cleanInline(paramsMatch[2]), 90)}`
-  }
-
-  return undefined
-}
-
-const extractResultSummaryFromText = (text: string): string => {
-  const resultsCountMatch = text.match(/\b(\d+\s+results?)\b/i)
-  if (resultsCountMatch?.[1]) {
-    return resultsCountMatch[1]
-  }
-
-  const resultMatch = text.match(
-    /\b(result|output|summary|status)\b[^a-z0-9]{0,3}([^,\n;]+)/i
-  )
-  if (resultMatch?.[2]) {
-    return truncate(cleanInline(resultMatch[2]), 90)
-  }
-
-  if (/\b(success|ok|completed)\b/i.test(text)) {
-    return "success"
-  }
-  if (/\b(error|failed|exception)\b/i.test(text)) {
-    return "error"
-  }
-
-  return truncate(cleanInline(text), 90)
-}
 
 const findFirstMatchingKeyValue = (
   input: unknown,
@@ -423,101 +340,6 @@ const findFirstMatchingKeyValue = (
   return undefined
 }
 
-const createToolLogEntryFromText = (
-  rawText: string
-): Omit<ToolLogEntry, "id" | "timestamp"> | null => {
-  const text = cleanInline(rawText)
-  const toolName = extractToolNameFromText(text)
-
-  if (!toolName && !toolKeywordPattern.test(text)) {
-    return null
-  }
-
-  return {
-    toolName: toolName ?? "tool-dispatch",
-    params: extractParametersFromText(text),
-    resultSummary: extractResultSummaryFromText(text),
-  }
-}
-
-const createToolLogEntry = (payload: unknown): ToolLogEntry | null => {
-  if (typeof payload === "string") {
-    const parsed = createToolLogEntryFromText(payload)
-    if (!parsed) return null
-
-    return {
-      id: createMessageId(),
-      timestamp: createTimestamp(),
-      ...parsed,
-    }
-  }
-
-  if (!payload || typeof payload !== "object") {
-    return null
-  }
-
-  const toolNameValue = findFirstMatchingKeyValue(payload, [
-    "toolName",
-    "tool_name",
-    "tool",
-    "function",
-    "function_name",
-    "name",
-  ])
-  const parametersValue = findFirstMatchingKeyValue(payload, [
-    "parameters",
-    "params",
-    "arguments",
-    "args",
-    "input",
-    "query",
-  ])
-  const resultValue = findFirstMatchingKeyValue(payload, [
-    "result",
-    "results",
-    "output",
-    "response",
-    "summary",
-    "status",
-  ])
-  const actionValue = findFirstMatchingKeyValue(payload, [
-    "action",
-    "operation",
-    "event",
-  ])
-
-  const raw = cleanInline(stringifyUnknown(payload))
-  const fallbackFromText = createToolLogEntryFromText(raw)
-
-  if (!toolNameValue && !fallbackFromText) {
-    return null
-  }
-
-  const toolName =
-    (toolNameValue ? cleanInline(stringifyUnknown(toolNameValue)) : null) ??
-    fallbackFromText?.toolName ??
-    "tool-dispatch"
-
-  const params = parametersValue
-    ? truncate(cleanInline(stringifyUnknown(parametersValue)), 220)
-    : fallbackFromText?.params
-
-  const resultSummary = resultValue
-    ? truncate(cleanInline(stringifyUnknown(resultValue)), 90)
-    : fallbackFromText?.resultSummary
-  const action = actionValue
-    ? truncate(cleanInline(stringifyUnknown(actionValue)), 90)
-    : undefined
-
-  return {
-    id: createMessageId(),
-    timestamp: createTimestamp(),
-    toolName,
-    action,
-    params,
-    resultSummary,
-  }
-}
 
 const mergeAssistantMessage = (previous: string, incoming: string): string => {
   if (!previous) return incoming
@@ -2709,6 +2531,7 @@ export default function Home() {
                                           key={`${image.url}-${index}`}
                                           className="flex flex-col gap-1"
                                         >
+                                          {/* eslint-disable-next-line @next/next/no-img-element */}
                                           <img
                                             src={image.url}
                                             alt={

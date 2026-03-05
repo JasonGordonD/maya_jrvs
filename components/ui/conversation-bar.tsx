@@ -57,11 +57,6 @@ export interface ConversationBarProps {
   className?: string
 
   /**
-   * Custom className for the waveform
-   */
-  waveformClassName?: string
-
-  /**
    * Callback when conversation connects
    */
   onConnect?: () => void
@@ -179,7 +174,7 @@ export const ConversationBar = React.forwardRef<
       agentId,
       getSignedUrl,
       className,
-      waveformClassName,
+
       onConnect,
       onDisconnect,
       onConnectionStatusChange,
