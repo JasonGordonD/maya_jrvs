@@ -14,6 +14,7 @@ import {
   Search,
 } from "lucide-react"
 
+import { SentimentOrchestrator } from "@/services/sentimentOrchestrator"
 import { Mjrvs_config_inspector_panel } from "@/components/mjrvs_config_inspector_panel"
 import {
   ConversationBar,
@@ -656,6 +657,9 @@ export default function Home() {
   const [isToolPanelOpen, setIsToolPanelOpen] = useState(true)
   const [mobilePanelTab, setMobilePanelTab] = useState<MobilePanelTab>("tools")
   const sessionStartRef = useRef<number | null>(null)
+  const sentimentOrchestratorRef = useRef<SentimentOrchestrator | null>(null)
+  const sendContextualUpdateRef = useRef<((text: string) => void) | null>(null)
+  const lastInjectedSentimentRef = useRef<string | null>(null)
   const transcriptRef = useRef<HTMLDivElement>(null)
   const transcriptSearchInputRef = useRef<HTMLInputElement>(null)
   const transcriptMatchElementsRef = useRef<HTMLElement[]>([])
@@ -1445,6 +1449,32 @@ export default function Home() {
           ])
           setPostConnectContextUpdate(null)
         }
+
+        // Start Hume sentiment pipeline
+        const humeKey = process.env.NEXT_PUBLIC_HUME_API_KEY
+        if (humeKey) {
+          sentimentOrchestratorRef.current = new SentimentOrchestrator({
+            humeApiKey: humeKey,
+            chunkIntervalMs: 2000,
+            onSentimentUpdate: (formatted) => {
+              if (formatted === lastInjectedSentimentRef.current) return // dedup
+              const sendUpdate = sendContextualUpdateRef.current
+              if (sendUpdate) {
+                try {
+                  sendUpdate(formatted)
+                  console.log('🎭 Sentiment injected:', formatted)
+                  lastInjectedSentimentRef.current = formatted
+                } catch (e) {
+                  console.error('🎭 Sentiment injection failed:', e)
+                }
+              }
+            },
+            onError: (err) => console.error('🎭 Hume error:', err),
+          })
+          sentimentOrchestratorRef.current.start()
+        } else {
+          console.warn('🎭 NEXT_PUBLIC_HUME_API_KEY not set — sentiment pipeline disabled')
+        }
         return
       }
 
@@ -1458,6 +1488,10 @@ export default function Home() {
         const endedSessionId = activeSessionId ?? conversationId
         markSessionEnded(endedSessionId, messages)
         setActiveSessionId(null)
+
+        sentimentOrchestratorRef.current?.stop()
+        sentimentOrchestratorRef.current = null
+        lastInjectedSentimentRef.current = null
 
         if (restartSequencePhaseRef.current === "awaiting_disconnect") {
           restartSequencePhaseRef.current = "awaiting_reconnect"
@@ -1579,6 +1613,13 @@ export default function Home() {
       window.clearInterval(intervalId)
     }
   }, [connectionStatus, showRestartWarning, triggerSessionAutoRestart])
+
+  const handleConversationHandleChange = useCallback(
+    (handle: { sendContextualUpdate: (text: string) => void } | null) => {
+      sendContextualUpdateRef.current = handle ? handle.sendContextualUpdate : null
+    },
+    []
+  )
 
   const appendToolLogEntry = useCallback((entry: ToolLogEntry | null) => {
     if (!entry) return
@@ -2779,6 +2820,7 @@ export default function Home() {
                   onError={handleConversationError}
                   onAgentToolResponse={mjrvs_handle_agent_tool_response}
                   postConnectContextUpdate={postConnectContextUpdate}
+                  onConversationHandleChange={handleConversationHandleChange}
                 />
 
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">

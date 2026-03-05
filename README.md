@@ -316,6 +316,7 @@ This script verifies node/npm, installs dependencies when needed, and checks Typ
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Next.js server + Supabase Edge | Privileged key for Edge invocation + DB insert |
 | `ANTHROPIC_API_KEY` | Yes (for summarizer) | Supabase Edge | Session summary generation |
 | `VOYAGE_API_KEY` | Yes (for summarizer) | Supabase Edge | Embedding generation (`voyage-4-large`) |
+| `NEXT_PUBLIC_HUME_API_KEY` | Optional | Browser (client-side) | Hume AI prosody/burst sentiment analysis. Pipeline disabled gracefully if not set. |
 
 ### Notes
 

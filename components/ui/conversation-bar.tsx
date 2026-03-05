@@ -162,6 +162,12 @@ export interface ConversationBarProps {
     key: number
     message: string
   } | null
+
+  /**
+   * Callback providing a handle to call sendContextualUpdate on the live conversation.
+   * Called with the handle object when connected, null when disconnected.
+   */
+  onConversationHandleChange?: (handle: { sendContextualUpdate: (text: string) => void } | null) => void
 }
 
 export const ConversationBar = React.forwardRef<
@@ -192,6 +198,7 @@ export const ConversationBar = React.forwardRef<
       clientTools,
       onAgentToolResponse,
       postConnectContextUpdate,
+      onConversationHandleChange,
     },
     ref
   ) => {
@@ -803,6 +810,14 @@ export const ConversationBar = React.forwardRef<
         onError?.(errorObj)
       }
     }, [agentState, conversation, onError, postConnectContextUpdate])
+
+    React.useEffect(() => {
+      if (agentState === 'connected') {
+        onConversationHandleChange?.({ sendContextualUpdate: (text: string) => conversation.sendContextualUpdate(text) })
+      } else if (agentState === 'disconnected') {
+        onConversationHandleChange?.(null)
+      }
+    }, [agentState, conversation, onConversationHandleChange])
 
     React.useEffect(() => {
       onSpeakingChange?.(conversation.isSpeaking)
