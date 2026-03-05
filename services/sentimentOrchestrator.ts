@@ -193,7 +193,7 @@ export class SentimentOrchestrator {
       .map(e => `${e.name} (${e.score.toFixed(2)})`)
       .join(', ');
 
-    return `[Caller emotional state detected: ${emotionList}. Calibrate your tone and response to match or address this state.]`;
+    return `<sentiment_update>${emotionList}</sentiment_update>`;
   }
 
   private arrayBufferToBase64(buffer: ArrayBuffer): string {
