@@ -487,6 +487,8 @@ export default function Home() {
   const restartSequencePhaseRef = useRef<RestartSequencePhase>("idle")
   const restartSequenceKeyRef = useRef(0)
   const restartWarningDismissedRef = useRef(false)
+  const lastHandledConnectionStatusRef = useRef<ConnectionStatus | null>(null)
+  const hasWarnedMissingHumeKeyRef = useRef(false)
 
   const viewedSession = useMemo(() => {
     if (!viewedSessionId) return null
@@ -1227,6 +1229,8 @@ export default function Home() {
 
   const handleConnectionStatusChange = useCallback(
     (status: ConnectionStatus) => {
+      if (status === lastHandledConnectionStatusRef.current) return
+      lastHandledConnectionStatusRef.current = status
       setConnectionStatus(status)
 
       if (status === "connected") {
@@ -1270,7 +1274,15 @@ export default function Home() {
 
         // Start Hume sentiment pipeline
         const humeKey = process.env.NEXT_PUBLIC_HUME_API_KEY
-        if (humeKey && !sentimentOrchestratorRef.current) {
+        if (!humeKey) {
+          if (!hasWarnedMissingHumeKeyRef.current) {
+            console.warn(
+              "🎭 NEXT_PUBLIC_HUME_API_KEY not set — sentiment pipeline disabled"
+            )
+            hasWarnedMissingHumeKeyRef.current = true
+          }
+        } else if (!sentimentOrchestratorRef.current) {
+          hasWarnedMissingHumeKeyRef.current = false
           sentimentOrchestratorRef.current = new SentimentOrchestrator({
             humeApiKey: humeKey,
             chunkIntervalMs: 2000,
@@ -1280,23 +1292,22 @@ export default function Home() {
               if (sendUpdate) {
                 try {
                   sendUpdate(formatted)
-                  console.log('🎭 Sentiment injected:', formatted)
+                  console.log("🎭 Sentiment injected:", formatted)
                   lastInjectedSentimentRef.current = formatted
                 } catch (e) {
-                  console.error('🎭 Sentiment injection failed:', e)
+                  console.error("🎭 Sentiment injection failed:", e)
                 }
               }
             },
-            onError: (err) => console.error('🎭 Hume error:', err),
+            onError: (err) => console.error("🎭 Hume error:", err),
           })
           sentimentOrchestratorRef.current.start()
-        } else {
-          console.warn('🎭 NEXT_PUBLIC_HUME_API_KEY not set — sentiment pipeline disabled')
         }
         return
       }
 
       if (status === "disconnected") {
+        hasWarnedMissingHumeKeyRef.current = false
         sessionStartRef.current = null
         setSessionStartedAt(null)
         setSessionStartTime(null)
