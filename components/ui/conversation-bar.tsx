@@ -178,6 +178,11 @@ export interface ConversationBarProps {
    * Called with the handle object when connected, null when disconnected.
    */
   onConversationHandleChange?: (handle: { sendContextualUpdate: (text: string) => void } | null) => void
+
+  /**
+   * Called each time the agent emits a TTS audio chunk. Receives raw base64-encoded PCM audio.
+   */
+  onAudio?: (base64Audio: string) => void
 }
 
 export const ConversationBar = React.forwardRef<
@@ -211,6 +216,7 @@ export const ConversationBar = React.forwardRef<
       onAgentToolResponse,
       postConnectContextUpdate,
       onConversationHandleChange,
+      onAudio,
     },
     ref
   ) => {
@@ -512,6 +518,7 @@ export const ConversationBar = React.forwardRef<
       onAgentToolResponse: (event) => {
         onAgentToolResponse?.(event)
       },
+      onAudio: onAudio ? (base64Audio) => onAudio(base64Audio) : undefined,
       textOnly: isTextMode,
       micMuted: isMuted,
       onError: (error: unknown) => {

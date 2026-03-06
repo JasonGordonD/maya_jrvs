@@ -2808,6 +2808,15 @@ export default function Home() {
                   onAgentToolResponse={mjrvs_handle_agent_tool_response}
                   postConnectContextUpdate={postConnectContextUpdate}
                   onConversationHandleChange={handleConversationHandleChange}
+                  onAudio={(base64Audio) => {
+                    if (!agentSentimentOrchestratorRef.current) return
+                    const binaryStr = atob(base64Audio)
+                    const bytes = new Uint8Array(binaryStr.length)
+                    for (let i = 0; i < binaryStr.length; i++) {
+                      bytes[i] = binaryStr.charCodeAt(i)
+                    }
+                    agentSentimentOrchestratorRef.current.feedAudioChunk(bytes)
+                  }}
                 />
 
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
