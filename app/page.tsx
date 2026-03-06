@@ -13,8 +13,6 @@ import {
   RotateCcw,
   Search,
 } from "lucide-react"
-import { Conversation } from "@elevenlabs/client"
-
 import { SentimentOrchestrator } from "@/services/sentimentOrchestrator"
 import { Mjrvs_config_inspector_panel } from "@/components/mjrvs_config_inspector_panel"
 import {
@@ -31,8 +29,6 @@ import { Response } from "@/components/ui/response"
 import { cn } from "@/lib/utils"
 
 type ConversationEvent = { source: "user" | "ai"; message: string }
-type AgentAudioEvent = { audio_base_64: string }
-
 type TranscriptMessage = {
   id: string
   timestamp: string
@@ -592,65 +588,6 @@ export default function Home() {
 
     return data.signedUrl
   }, [])
-
-  const handleAgentAudioEvent = useCallback(
-    (audioEvent: AgentAudioEvent) => {
-      if (!agentSentimentOrchestratorRef.current) return
-
-      // Decode base64 to PCM bytes
-      const binaryStr = atob(audioEvent.audio_base_64)
-      const bytes = new Uint8Array(binaryStr.length)
-      for (let i = 0; i < binaryStr.length; i++) {
-        bytes[i] = binaryStr.charCodeAt(i)
-      }
-
-      // Feed raw PCM chunk directly to agent sentiment orchestrator
-      agentSentimentOrchestratorRef.current.feedAudioChunk(bytes)
-    },
-    []
-  )
-
-  useEffect(() => {
-    const globalAudioHook = globalThis as typeof globalThis & {
-      __jrvsHandleAgentAudioEvent?: (audioEvent: AgentAudioEvent) => void
-    }
-    const conversationCtor = Conversation as typeof Conversation & {
-      __jrvsOnAudioPatched?: boolean
-      __jrvsOriginalStartSession?: typeof Conversation.startSession
-    }
-
-    globalAudioHook.__jrvsHandleAgentAudioEvent = handleAgentAudioEvent
-
-    if (!conversationCtor.__jrvsOnAudioPatched) {
-      const originalStartSession = conversationCtor.startSession.bind(
-        conversationCtor
-      )
-      conversationCtor.__jrvsOriginalStartSession = originalStartSession
-
-      conversationCtor.startSession = (async (options) => {
-        const providedOnAudio = options?.onAudio
-        const sessionOptions = {
-          ...(options ?? {}),
-          onAudio: (base64Audio: string) => {
-            providedOnAudio?.(base64Audio)
-            globalAudioHook.__jrvsHandleAgentAudioEvent?.({
-              audio_base_64: base64Audio,
-            })
-          },
-        } as Parameters<typeof originalStartSession>[0]
-
-        return originalStartSession(sessionOptions)
-      }) as typeof Conversation.startSession
-
-      conversationCtor.__jrvsOnAudioPatched = true
-    }
-
-    return () => {
-      if (globalAudioHook.__jrvsHandleAgentAudioEvent === handleAgentAudioEvent) {
-        globalAudioHook.__jrvsHandleAgentAudioEvent = undefined
-      }
-    }
-  }, [handleAgentAudioEvent])
 
   useEffect(() => {
     if (!transcriptRef.current) return
