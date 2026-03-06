@@ -250,31 +250,41 @@ export const ConversationBar = React.forwardRef<
         throw new Error("System audio capture not supported in this browser.")
       }
 
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        audio: true,
-        video: false,
-      })
+      try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          audio: true,
+          // Some browsers reject audio-only display capture; request video and stop it immediately.
+          video: true,
+        })
 
-      stream.getVideoTracks().forEach((track) => track.stop())
-      if (stream.getAudioTracks().length === 0) {
-        stopStream(stream)
-        throw new Error(
-          "No system audio track was shared. Select a tab/window with audio."
-        )
+        stream.getVideoTracks().forEach((track) => track.stop())
+        if (stream.getAudioTracks().length === 0) {
+          stopStream(stream)
+          throw new Error(
+            "No system audio track was shared. Select a tab/window with audio."
+          )
+        }
+
+        const [audioTrack] = stream.getAudioTracks()
+        if (audioTrack) {
+          audioTrack.addEventListener(
+            "ended",
+            () => {
+              onSystemAudioCaptureChange?.(false)
+            },
+            { once: true }
+          )
+        }
+
+        return stream
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "NotSupportedError") {
+          throw new Error(
+            "System audio capture is not supported by this browser/context for the selected share source."
+          )
+        }
+        throw error
       }
-
-      const [audioTrack] = stream.getAudioTracks()
-      if (audioTrack) {
-        audioTrack.addEventListener(
-          "ended",
-          () => {
-            onSystemAudioCaptureChange?.(false)
-          },
-          { once: true }
-        )
-      }
-
-      return stream
     }, [onSystemAudioCaptureChange, stopStream])
 
     const getMicConstraints = React.useCallback((): MediaTrackConstraints | true => {
@@ -302,7 +312,13 @@ export const ConversationBar = React.forwardRef<
       const micStream = await navigator.mediaDevices.getUserMedia({
         audio: getMicConstraints(),
       })
-      const systemStream = await requestDisplayAudioStream()
+      let systemStream: MediaStream
+      try {
+        systemStream = await requestDisplayAudioStream()
+      } catch (error) {
+        stopStream(micStream)
+        throw error
+      }
 
       const AudioContextCtor =
         window.AudioContext ||
