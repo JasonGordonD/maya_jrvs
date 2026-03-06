@@ -14,6 +14,7 @@ import {
   Search,
 } from "lucide-react"
 
+import { DeviceAudioCapture } from "@/services/deviceAudioCapture"
 import { SentimentOrchestrator } from "@/services/sentimentOrchestrator"
 import { Mjrvs_config_inspector_panel } from "@/components/mjrvs_config_inspector_panel"
 import {
@@ -478,6 +479,7 @@ export default function Home() {
   const sessionStartRef = useRef<number | null>(null)
   const sentimentOrchestratorRef = useRef<SentimentOrchestrator | null>(null)
   const agentSentimentOrchestratorRef = useRef<SentimentOrchestrator | null>(null)
+  const deviceAudioCaptureRef = useRef<DeviceAudioCapture | null>(null)
   const agentDeviceStreamRef = useRef<MediaStream | null>(null)
   const lastInjectedAgentSentimentRef = useRef<string | null>(null)
   const sendContextualUpdateRef = useRef<((text: string) => void) | null>(null)
@@ -571,6 +573,20 @@ export default function Home() {
   }, [activeTranscriptMatchIndex, transcriptMatchCount])
 
   const getSignedUrl = useCallback(async () => {
+    // Capture device/tab audio BEFORE the ElevenLabs session initializes.
+    // getDisplayMedia must complete first so it does not conflict with mic input.
+    if (!agentDeviceStreamRef.current) {
+      try {
+        deviceAudioCaptureRef.current?.stop()
+        const capture = new DeviceAudioCapture()
+        deviceAudioCaptureRef.current = capture
+        const stream = await capture.start()
+        agentDeviceStreamRef.current = stream
+      } catch (err) {
+        console.warn("Device audio capture skipped:", err)
+      }
+    }
+
     const response = await fetch("/api/signed-url", {
       method: "GET",
       cache: "no-store",
@@ -1372,6 +1388,8 @@ export default function Home() {
         agentSentimentOrchestratorRef.current?.stop()
         agentSentimentOrchestratorRef.current = null
         lastInjectedAgentSentimentRef.current = null
+        deviceAudioCaptureRef.current?.stop()
+        deviceAudioCaptureRef.current = null
         agentDeviceStreamRef.current = null
 
         if (restartSequencePhaseRef.current === "awaiting_disconnect") {
@@ -1438,6 +1456,8 @@ export default function Home() {
     mixedModeMicStreamRef.current = null
     agentSentimentOrchestratorRef.current?.stop()
     agentSentimentOrchestratorRef.current = null
+    deviceAudioCaptureRef.current?.stop()
+    deviceAudioCaptureRef.current = null
     agentDeviceStreamRef.current = null
     lastInjectedAgentSentimentRef.current = null
     sessionStartRef.current = null
