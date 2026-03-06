@@ -13,8 +13,8 @@ import {
   RotateCcw,
   Search,
 } from "lucide-react"
+import { Conversation } from "@elevenlabs/client"
 
-import { DeviceAudioCapture } from "@/services/deviceAudioCapture"
 import { SentimentOrchestrator } from "@/services/sentimentOrchestrator"
 import { Mjrvs_config_inspector_panel } from "@/components/mjrvs_config_inspector_panel"
 import {
@@ -31,6 +31,7 @@ import { Response } from "@/components/ui/response"
 import { cn } from "@/lib/utils"
 
 type ConversationEvent = { source: "user" | "ai"; message: string }
+type AgentAudioEvent = { audio_base_64: string }
 
 type TranscriptMessage = {
   id: string
@@ -434,7 +435,7 @@ export default function Home() {
   const [selectedMicId, setSelectedMicId] = useState<string>("")
   const [audioInputMode, setAudioInputMode] = useState<AudioInputMode>("mic")
   const systemAudioCaptureSupported =
-    typeof window !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia
+    typeof window !== "undefined" && !!navigator.mediaDevices
   const [systemAudioCaptureLive, setSystemAudioCaptureLive] = useState(false)
   const [audioModeRestartSignal, setAudioModeRestartSignal] = useState(0)
   const [newSessionSignal, setNewSessionSignal] = useState(0)
@@ -479,8 +480,6 @@ export default function Home() {
   const sessionStartRef = useRef<number | null>(null)
   const sentimentOrchestratorRef = useRef<SentimentOrchestrator | null>(null)
   const agentSentimentOrchestratorRef = useRef<SentimentOrchestrator | null>(null)
-  const deviceAudioCaptureRef = useRef<DeviceAudioCapture | null>(null)
-  const agentDeviceStreamRef = useRef<MediaStream | null>(null)
   const lastInjectedAgentSentimentRef = useRef<string | null>(null)
   const sendContextualUpdateRef = useRef<((text: string) => void) | null>(null)
   const lastInjectedSentimentRef = useRef<string | null>(null)
@@ -573,20 +572,6 @@ export default function Home() {
   }, [activeTranscriptMatchIndex, transcriptMatchCount])
 
   const getSignedUrl = useCallback(async () => {
-    // Capture device/tab audio BEFORE the ElevenLabs session initializes.
-    // getDisplayMedia must complete first so it does not conflict with mic input.
-    if (!agentDeviceStreamRef.current) {
-      try {
-        deviceAudioCaptureRef.current?.stop()
-        const capture = new DeviceAudioCapture()
-        deviceAudioCaptureRef.current = capture
-        const stream = await capture.start()
-        agentDeviceStreamRef.current = stream
-      } catch (err) {
-        console.warn("Device audio capture skipped:", err)
-      }
-    }
-
     const response = await fetch("/api/signed-url", {
       method: "GET",
       cache: "no-store",
@@ -607,6 +592,65 @@ export default function Home() {
 
     return data.signedUrl
   }, [])
+
+  const handleAgentAudioEvent = useCallback(
+    (audioEvent: AgentAudioEvent) => {
+      if (!agentSentimentOrchestratorRef.current) return
+
+      // Decode base64 to PCM bytes
+      const binaryStr = atob(audioEvent.audio_base_64)
+      const bytes = new Uint8Array(binaryStr.length)
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i)
+      }
+
+      // Feed raw PCM chunk directly to agent sentiment orchestrator
+      agentSentimentOrchestratorRef.current.feedAudioChunk(bytes)
+    },
+    []
+  )
+
+  useEffect(() => {
+    const globalAudioHook = globalThis as typeof globalThis & {
+      __jrvsHandleAgentAudioEvent?: (audioEvent: AgentAudioEvent) => void
+    }
+    const conversationCtor = Conversation as typeof Conversation & {
+      __jrvsOnAudioPatched?: boolean
+      __jrvsOriginalStartSession?: typeof Conversation.startSession
+    }
+
+    globalAudioHook.__jrvsHandleAgentAudioEvent = handleAgentAudioEvent
+
+    if (!conversationCtor.__jrvsOnAudioPatched) {
+      const originalStartSession = conversationCtor.startSession.bind(
+        conversationCtor
+      )
+      conversationCtor.__jrvsOriginalStartSession = originalStartSession
+
+      conversationCtor.startSession = (async (options) => {
+        const providedOnAudio = options?.onAudio
+        const sessionOptions = {
+          ...(options ?? {}),
+          onAudio: (base64Audio: string) => {
+            providedOnAudio?.(base64Audio)
+            globalAudioHook.__jrvsHandleAgentAudioEvent?.({
+              audio_base_64: base64Audio,
+            })
+          },
+        } as Parameters<typeof originalStartSession>[0]
+
+        return originalStartSession(sessionOptions)
+      }) as typeof Conversation.startSession
+
+      conversationCtor.__jrvsOnAudioPatched = true
+    }
+
+    return () => {
+      if (globalAudioHook.__jrvsHandleAgentAudioEvent === handleAgentAudioEvent) {
+        globalAudioHook.__jrvsHandleAgentAudioEvent = undefined
+      }
+    }
+  }, [handleAgentAudioEvent])
 
   useEffect(() => {
     if (!transcriptRef.current) return
@@ -1340,12 +1384,11 @@ export default function Home() {
             }
           }
 
-          // Agent pipeline (device audio → source="agent")
-          if (!agentSentimentOrchestratorRef.current && agentDeviceStreamRef.current) {
+          // Agent pipeline (SDK onAudio chunks → source="agent")
+          if (!agentSentimentOrchestratorRef.current) {
             agentSentimentOrchestratorRef.current = new SentimentOrchestrator({
               humeApiKey: humeKey,
               source: "agent",
-              inputStream: agentDeviceStreamRef.current,
               chunkIntervalMs: 2000,
               onSentimentUpdate: (formatted) => {
                 if (formatted === lastInjectedAgentSentimentRef.current) return
@@ -1388,9 +1431,6 @@ export default function Home() {
         agentSentimentOrchestratorRef.current?.stop()
         agentSentimentOrchestratorRef.current = null
         lastInjectedAgentSentimentRef.current = null
-        deviceAudioCaptureRef.current?.stop()
-        deviceAudioCaptureRef.current = null
-        agentDeviceStreamRef.current = null
 
         if (restartSequencePhaseRef.current === "awaiting_disconnect") {
           restartSequencePhaseRef.current = "awaiting_reconnect"
@@ -1456,9 +1496,6 @@ export default function Home() {
     mixedModeMicStreamRef.current = null
     agentSentimentOrchestratorRef.current?.stop()
     agentSentimentOrchestratorRef.current = null
-    deviceAudioCaptureRef.current?.stop()
-    deviceAudioCaptureRef.current = null
-    agentDeviceStreamRef.current = null
     lastInjectedAgentSentimentRef.current = null
     sessionStartRef.current = null
     setSessionDurationSeconds(0)
@@ -1516,46 +1553,6 @@ export default function Home() {
       sentimentOrchestratorRef.current.start()
     },
     [audioInputMode, connectionStatus]
-  )
-
-  const handleAgentDeviceStreamChange = useCallback(
-    (stream: MediaStream | null) => {
-      agentDeviceStreamRef.current = stream
-
-      if (
-        !stream ||
-        connectionStatus !== "connected" ||
-        agentSentimentOrchestratorRef.current
-      ) {
-        return
-      }
-
-      const humeKey = process.env.NEXT_PUBLIC_HUME_API_KEY
-      if (!humeKey) return
-
-      agentSentimentOrchestratorRef.current = new SentimentOrchestrator({
-        humeApiKey: humeKey,
-        source: "agent",
-        inputStream: stream,
-        chunkIntervalMs: 2000,
-        onSentimentUpdate: (formatted) => {
-          if (formatted === lastInjectedAgentSentimentRef.current) return
-          const sendUpdate = sendContextualUpdateRef.current
-          if (sendUpdate) {
-            try {
-              sendUpdate(formatted)
-              console.log("🎭 Agent sentiment injected:", formatted)
-              lastInjectedAgentSentimentRef.current = formatted
-            } catch (e) {
-              console.error("🎭 Agent sentiment injection failed:", e)
-            }
-          }
-        },
-        onError: (err) => console.error("🎭 Agent Hume error:", err),
-      })
-      agentSentimentOrchestratorRef.current.start()
-    },
-    [connectionStatus]
   )
 
   useEffect(() => {
@@ -2802,7 +2799,6 @@ export default function Home() {
                   clientTools={clientTools}
                   onSystemAudioCaptureChange={setSystemAudioCaptureLive}
                   onMixedModeMicStreamChange={handleMixedModeMicStreamChange}
-                  onDeviceAudioStreamChange={handleAgentDeviceStreamChange}
                   onConnectionStatusChange={handleConnectionStatusChange}
                   onSpeakingChange={setIsAgentSpeaking}
                   onConversationId={handleConversationIdChange}

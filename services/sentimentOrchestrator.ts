@@ -35,6 +35,7 @@ export class SentimentOrchestrator {
   private pcmBuffer: Float32Array[] = [];
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private lastChunkSentAt = 0;
+  private usesManualAudioFeed = false;
 
   constructor(config: SentimentOrchestratorConfig) {
     this.config = config;
@@ -57,39 +58,47 @@ export class SentimentOrchestrator {
     if (this.isRunning) return;
 
     try {
-      if (this.config.inputStream) {
-        const sourceTrack = this.config.inputStream.getAudioTracks()[0];
-        if (!sourceTrack) {
-          throw new Error('Provided input stream has no audio track');
+      this.usesManualAudioFeed =
+        this.config.source === 'agent' && !this.config.inputStream && !this.config.deviceId;
+
+      if (!this.usesManualAudioFeed) {
+        if (this.config.inputStream) {
+          const sourceTrack = this.config.inputStream.getAudioTracks()[0];
+          if (!sourceTrack) {
+            throw new Error('Provided input stream has no audio track');
+          }
+          // Clone to ensure orchestrator cleanup does not stop caller-owned tracks.
+          this.micStream = new MediaStream([sourceTrack.clone()]);
+        } else {
+          const audioConstraints: MediaTrackConstraints = {
+            sampleRate: SAMPLE_RATE,
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+          };
+          if (this.config.deviceId) {
+            audioConstraints.deviceId = { exact: this.config.deviceId };
+          }
+          this.micStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
         }
-        // Clone to ensure orchestrator cleanup does not stop caller-owned tracks.
-        this.micStream = new MediaStream([sourceTrack.clone()]);
-      } else {
-        const audioConstraints: MediaTrackConstraints = {
-          sampleRate: SAMPLE_RATE,
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-        };
-        if (this.config.deviceId) {
-          audioConstraints.deviceId = { exact: this.config.deviceId };
-        }
-        this.micStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
       }
+
       this.client.connect();
 
-      this.audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
-      this.sourceNode = this.audioContext.createMediaStreamSource(this.micStream);
+      if (!this.usesManualAudioFeed && this.micStream) {
+        this.audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
+        this.sourceNode = this.audioContext.createMediaStreamSource(this.micStream);
 
-      const bufferSize = 4096;
-      this.scriptProcessor = this.audioContext.createScriptProcessor(bufferSize, 1, 1);
-      this.scriptProcessor.onaudioprocess = (event) => {
-        const channelData = event.inputBuffer.getChannelData(0);
-        this.pcmBuffer.push(new Float32Array(channelData));
-      };
+        const bufferSize = 4096;
+        this.scriptProcessor = this.audioContext.createScriptProcessor(bufferSize, 1, 1);
+        this.scriptProcessor.onaudioprocess = (event) => {
+          const channelData = event.inputBuffer.getChannelData(0);
+          this.pcmBuffer.push(new Float32Array(channelData));
+        };
 
-      this.sourceNode.connect(this.scriptProcessor);
-      this.scriptProcessor.connect(this.audioContext.destination);
+        this.sourceNode.connect(this.scriptProcessor);
+        this.scriptProcessor.connect(this.audioContext.destination);
+      }
 
       const chunkInterval = this.config.chunkIntervalMs ?? 2000;
       this.flushTimer = setInterval(() => this.flushPcmBuffer(), chunkInterval);
@@ -101,6 +110,22 @@ export class SentimentOrchestrator {
       console.error('SentimentOrchestrator: failed to start', error);
       this.config.onError?.(`Failed to start sentiment pipeline: ${error.message}`);
     }
+  }
+
+  feedAudioChunk(bytes: Uint8Array): void {
+    if (!this.isRunning || bytes.length < 2) return;
+
+    // ElevenLabs onAudio delivers 16-bit little-endian PCM bytes.
+    const sampleCount = Math.floor(bytes.length / 2);
+    if (sampleCount === 0) return;
+
+    const pcm = new Float32Array(sampleCount);
+    const view = new DataView(bytes.buffer, bytes.byteOffset, sampleCount * 2);
+    for (let i = 0; i < sampleCount; i++) {
+      const sample = view.getInt16(i * 2, true);
+      pcm[i] = sample < 0 ? sample / 0x8000 : sample / 0x7FFF;
+    }
+    this.pcmBuffer.push(pcm);
   }
 
   private flushPcmBuffer(): void {
@@ -205,6 +230,7 @@ export class SentimentOrchestrator {
     this.pcmBuffer = [];
     this.client.disconnect();
     this.latestSentiment = null;
+    this.usesManualAudioFeed = false;
     this.isRunning = false;
     console.log('🎭 Sentiment orchestrator stopped');
   }
