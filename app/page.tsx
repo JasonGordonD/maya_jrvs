@@ -489,6 +489,7 @@ export default function Home() {
   const restartWarningDismissedRef = useRef(false)
   const lastHandledConnectionStatusRef = useRef<ConnectionStatus | null>(null)
   const hasWarnedMissingHumeKeyRef = useRef(false)
+  const mixedModeMicStreamRef = useRef<MediaStream | null>(null)
 
   const viewedSession = useMemo(() => {
     if (!viewedSessionId) return null
@@ -1285,6 +1286,10 @@ export default function Home() {
           hasWarnedMissingHumeKeyRef.current = false
           sentimentOrchestratorRef.current = new SentimentOrchestrator({
             humeApiKey: humeKey,
+            inputStream:
+              audioInputMode === "mixed"
+                ? (mixedModeMicStreamRef.current ?? undefined)
+                : undefined,
             chunkIntervalMs: 2000,
             onSentimentUpdate: (formatted) => {
               if (formatted === lastInjectedSentimentRef.current) return // dedup
@@ -1321,6 +1326,7 @@ export default function Home() {
         sentimentOrchestratorRef.current?.stop()
         sentimentOrchestratorRef.current = null
         lastInjectedSentimentRef.current = null
+        mixedModeMicStreamRef.current = null
 
         if (restartSequencePhaseRef.current === "awaiting_disconnect") {
           restartSequencePhaseRef.current = "awaiting_reconnect"
@@ -1346,6 +1352,7 @@ export default function Home() {
       sessionStartTime,
       updateMessages,
       upsertSessionHistoryEntry,
+      audioInputMode,
     ]
   )
 
@@ -1382,6 +1389,7 @@ export default function Home() {
     setUseAuthoritativeNodeUpdates(false)
     setConversationId("")
     setSystemAudioCaptureLive(false)
+    mixedModeMicStreamRef.current = null
     sessionStartRef.current = null
     setSessionDurationSeconds(0)
     setSessionStartedAt(null)
@@ -1398,6 +1406,13 @@ export default function Home() {
     clearTranscriptHighlights()
     setNewSessionSignal((prev) => prev + 1)
   }, [clearTranscriptHighlights, resetRestartWarningState, updateMessages])
+
+  const handleMixedModeMicStreamChange = useCallback(
+    (stream: MediaStream | null) => {
+      mixedModeMicStreamRef.current = stream
+    },
+    []
+  )
 
   useEffect(() => {
     if (connectionStatus !== "connected" || !sessionStartTime) return
@@ -2642,6 +2657,7 @@ export default function Home() {
                   newSessionSignal={newSessionSignal}
                   clientTools={clientTools}
                   onSystemAudioCaptureChange={setSystemAudioCaptureLive}
+                  onMixedModeMicStreamChange={handleMixedModeMicStreamChange}
                   onConnectionStatusChange={handleConnectionStatusChange}
                   onSpeakingChange={setIsAgentSpeaking}
                   onConversationId={handleConversationIdChange}

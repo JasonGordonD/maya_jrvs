@@ -124,6 +124,12 @@ export interface ConversationBarProps {
   onSystemAudioCaptureChange?: (isActive: boolean) => void
 
   /**
+   * Callback when a mixed-mode mic stream is prepared/cleared.
+   * Used to share the existing mic capture with auxiliary consumers.
+   */
+  onMixedModeMicStreamChange?: (stream: MediaStream | null) => void
+
+  /**
    * Changing this signal forces an active session disconnect
    */
   forceDisconnectSignal?: number
@@ -188,6 +194,7 @@ export const ConversationBar = React.forwardRef<
       audioInputMode = "mic",
       conversationMode = "voice",
       onSystemAudioCaptureChange,
+      onMixedModeMicStreamChange,
       forceDisconnectSignal,
       newSessionSignal,
       clientTools,
@@ -212,6 +219,7 @@ export const ConversationBar = React.forwardRef<
     const displayStreamRef = React.useRef<MediaStream | null>(null)
     const mixedMicStreamRef = React.useRef<MediaStream | null>(null)
     const mixedDisplayStreamRef = React.useRef<MediaStream | null>(null)
+    const sharedMixedMicStreamRef = React.useRef<MediaStream | null>(null)
     const audioContextRef = React.useRef<AudioContext | null>(null)
     const previousDisconnectSignalRef = React.useRef<number | undefined>(
       forceDisconnectSignal
@@ -231,11 +239,13 @@ export const ConversationBar = React.forwardRef<
       stopStream(displayStreamRef.current)
       stopStream(mixedMicStreamRef.current)
       stopStream(mixedDisplayStreamRef.current)
+      stopStream(sharedMixedMicStreamRef.current)
 
       mediaStreamRef.current = null
       displayStreamRef.current = null
       mixedMicStreamRef.current = null
       mixedDisplayStreamRef.current = null
+      sharedMixedMicStreamRef.current = null
 
       if (audioContextRef.current) {
         void audioContextRef.current.close()
@@ -243,7 +253,8 @@ export const ConversationBar = React.forwardRef<
       }
 
       onSystemAudioCaptureChange?.(false)
-    }, [onSystemAudioCaptureChange, stopStream])
+      onMixedModeMicStreamChange?.(null)
+    }, [onMixedModeMicStreamChange, onSystemAudioCaptureChange, stopStream])
 
     const requestDisplayAudioStream = React.useCallback(async () => {
       if (!navigator.mediaDevices?.getDisplayMedia) {
@@ -298,6 +309,7 @@ export const ConversationBar = React.forwardRef<
         })
         mediaStreamRef.current = stream
         onSystemAudioCaptureChange?.(false)
+        onMixedModeMicStreamChange?.(null)
         return stream
       }
 
@@ -306,6 +318,7 @@ export const ConversationBar = React.forwardRef<
         displayStreamRef.current = displayStream
         mediaStreamRef.current = displayStream
         onSystemAudioCaptureChange?.(true)
+        onMixedModeMicStreamChange?.(null)
         return displayStream
       }
 
@@ -343,15 +356,27 @@ export const ConversationBar = React.forwardRef<
       void audioContext.resume()
 
       const mixedStream = destination.stream
+      const micTrack = micStream.getAudioTracks()[0]
+      if (!micTrack) {
+        stopStream(micStream)
+        stopStream(systemStream)
+        void audioContext.close()
+        audioContextRef.current = null
+        throw new Error("No microphone track available for mixed mode.")
+      }
+      const sharedMixedMicStream = new MediaStream([micTrack.clone()])
       mixedMicStreamRef.current = micStream
       mixedDisplayStreamRef.current = systemStream
+      sharedMixedMicStreamRef.current = sharedMixedMicStream
       mediaStreamRef.current = mixedStream
       onSystemAudioCaptureChange?.(true)
+      onMixedModeMicStreamChange?.(sharedMixedMicStream)
 
       return mixedStream
     }, [
       audioInputMode,
       getMicConstraints,
+      onMixedModeMicStreamChange,
       onSystemAudioCaptureChange,
       requestDisplayAudioStream,
       stopStream,

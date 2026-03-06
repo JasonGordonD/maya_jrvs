@@ -3,6 +3,7 @@ import { HumeSentimentClient, SentimentResult } from './humeSentimentClient';
 export interface SentimentOrchestratorConfig {
   humeApiKey: string;
   deviceId?: string;
+  inputStream?: MediaStream;
   chunkIntervalMs?: number;
   onSentimentUpdate?: (formatted: string, result: SentimentResult) => void;
   onError?: (error: string) => void;
@@ -55,16 +56,25 @@ export class SentimentOrchestrator {
     if (this.isRunning) return;
 
     try {
-      const audioConstraints: MediaTrackConstraints = {
-        sampleRate: SAMPLE_RATE,
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-      };
-      if (this.config.deviceId) {
-        audioConstraints.deviceId = { exact: this.config.deviceId };
+      if (this.config.inputStream) {
+        const sourceTrack = this.config.inputStream.getAudioTracks()[0];
+        if (!sourceTrack) {
+          throw new Error('Provided input stream has no audio track');
+        }
+        // Clone to ensure orchestrator cleanup does not stop caller-owned tracks.
+        this.micStream = new MediaStream([sourceTrack.clone()]);
+      } else {
+        const audioConstraints: MediaTrackConstraints = {
+          sampleRate: SAMPLE_RATE,
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+        };
+        if (this.config.deviceId) {
+          audioConstraints.deviceId = { exact: this.config.deviceId };
+        }
+        this.micStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
       }
-      this.micStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
       this.client.connect();
 
       this.audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
