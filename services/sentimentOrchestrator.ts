@@ -34,6 +34,7 @@ export class SentimentOrchestrator {
   private isRunning = false;
   private pcmBuffer: Float32Array[] = [];
   private flushTimer: ReturnType<typeof setInterval> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private lastChunkSentAt = 0;
   private usesManualAudioFeed = false;
 
@@ -102,6 +103,7 @@ export class SentimentOrchestrator {
 
       const chunkInterval = this.config.chunkIntervalMs ?? 2000;
       this.flushTimer = setInterval(() => this.flushPcmBuffer(), chunkInterval);
+      this.heartbeatTimer = setInterval(() => this.sendHeartbeatPing(), 30000);
 
       this.isRunning = true;
       console.log(`🎭 Sentiment orchestrator started (${chunkInterval}ms WAV chunks @ ${SAMPLE_RATE}Hz)`);
@@ -167,6 +169,19 @@ export class SentimentOrchestrator {
     this.lastChunkSentAt = Date.now();
   }
 
+  private sendHeartbeatPing(): void {
+    const ws = (this.client as unknown as { ws?: WebSocket | null }).ws;
+    if (ws?.readyState !== WebSocket.OPEN) return;
+
+    // Hume's browser WebSocket client does not expose protocol-level ping frames,
+    // so send an empty JSON object as an application-level keepalive.
+    try {
+      ws.send('{}');
+    } catch {
+      // Ignore transient send races if the socket closes between readyState check and send.
+    }
+  }
+
   private buildWav(pcmFloat32: Float32Array): ArrayBuffer {
     const numSamples = pcmFloat32.length;
     const bytesPerSample = 2;
@@ -209,6 +224,10 @@ export class SentimentOrchestrator {
     if (this.flushTimer) {
       clearInterval(this.flushTimer);
       this.flushTimer = null;
+    }
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
     }
     if (this.scriptProcessor) {
       this.scriptProcessor.disconnect();
