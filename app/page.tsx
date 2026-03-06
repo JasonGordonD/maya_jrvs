@@ -1194,7 +1194,6 @@ export default function Home() {
   const handleAudioInputModeChange = useCallback(
     (nextMode: AudioInputMode) => {
       if (nextMode === audioInputMode) return
-      if (nextMode !== "mic" && !systemAudioCaptureSupported) return
 
       if (
         connectionStatus === "connected" ||
@@ -1212,7 +1211,7 @@ export default function Home() {
         setSystemAudioCaptureLive(false)
       }
     },
-    [audioInputMode, connectionStatus, systemAudioCaptureSupported]
+    [audioInputMode, connectionStatus]
   )
 
   const handleConversationModeChange = useCallback(
@@ -2662,10 +2661,9 @@ export default function Home() {
                                 key={mode}
                                 type="button"
                                 onClick={() => handleAudioInputModeChange(mode)}
-                                disabled={unsupported}
                                 title={
                                   unsupported
-                                    ? "System audio capture not supported in this browser."
+                                    ? "System audio capture may not be supported in this browser/context."
                                     : audioModeLabelMap[mode]
                                 }
                                 className={cn(
@@ -2673,7 +2671,7 @@ export default function Home() {
                                   audioInputMode === mode
                                     ? "bg-background text-foreground shadow-sm"
                                     : "text-muted-foreground",
-                                  unsupported && "cursor-not-allowed opacity-50"
+                                  unsupported && "opacity-70"
                                 )}
                               >
                                 {audioModeLabelMap[mode]}
