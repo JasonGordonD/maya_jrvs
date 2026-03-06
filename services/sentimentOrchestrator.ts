@@ -6,6 +6,8 @@ export interface SentimentOrchestratorConfig {
   deviceId?: string;
   inputStream?: MediaStream;
   chunkIntervalMs?: number;
+  // Ref to the live sendContextualUpdate fn — avoids stale closure on direct ref.
+  conversationRef?: { current: ((text: string) => void) | null };
   onSentimentUpdate?: (formatted: string, result: SentimentResult) => void;
   onError?: (error: string) => void;
 }
@@ -21,7 +23,7 @@ const MEANINGFUL_EMOTIONS = new Set([
 ]);
 
 const SCORE_THRESHOLD = 0.25;
-const SAMPLE_RATE = 16000;
+const SAMPLE_RATE = 48000;  // ElevenLabs TTS and browser mic both output 48kHz
 
 export class SentimentOrchestrator {
   private client: HumeSentimentClient;
@@ -37,6 +39,8 @@ export class SentimentOrchestrator {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private lastChunkSentAt = 0;
   private usesManualAudioFeed = false;
+  // Dedup: skip injection if the sentiment string hasn't changed since last push
+  private lastInjectedSentiment: string | null = null;
 
   constructor(config: SentimentOrchestratorConfig) {
     this.config = config;
@@ -46,12 +50,25 @@ export class SentimentOrchestrator {
         this.latestSentiment = result;
         const formatted = this.formatSentimentForInjection(result);
         if (formatted) {
+          // Inject via conversationRef (dedup — skip if same as last push)
+          if (formatted !== this.lastInjectedSentiment) {
+            const sendUpdate = this.config.conversationRef?.current;
+            if (sendUpdate) {
+              try {
+                sendUpdate(formatted);
+                this.lastInjectedSentiment = formatted;
+                console.log(`🎭 Sentiment injected (${this.config.source ?? 'caller'}):`, formatted);
+              } catch (e) {
+                console.error('🎭 Sentiment injection failed:', e);
+              }
+            }
+          }
           config.onSentimentUpdate?.(formatted, result);
         }
       },
       onError: config.onError,
-      onConnected: () => console.log('🎭 Hume sentiment pipeline active'),
-      onDisconnected: () => console.log('🎭 Hume sentiment pipeline disconnected'),
+      onConnected: () => console.log(`🎭 Hume WebSocket connected (${config.source ?? 'caller'})`),
+      onDisconnected: () => console.log(`🎭 Hume sentiment pipeline disconnected (${config.source ?? 'caller'})`),
     });
   }
 
@@ -107,14 +124,7 @@ export class SentimentOrchestrator {
       this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), 30000);
 
       this.isRunning = true;
-
-      this.heartbeatTimer = setInterval(() => {
-        if (this.client.isConnected()) {
-          this.client.sendPing();
-        }
-      }, 30_000);
-
-      console.log(`🎭 Sentiment orchestrator started (${chunkInterval}ms WAV chunks @ ${SAMPLE_RATE}Hz)`);
+      console.log(`🎭 Sentiment orchestrator started (${chunkInterval}ms WAV chunks @ ${SAMPLE_RATE}Hz, source=${this.config.source ?? 'caller'})`);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error('SentimentOrchestrator: failed to start', error);
@@ -156,7 +166,7 @@ export class SentimentOrchestrator {
     }
     this.pcmBuffer = [];
 
-    const MAX_SAMPLES = 80000; // 5 seconds at 16kHz — hard cap against Hume's limit
+    const MAX_SAMPLES = 240000; // 5 seconds at 48kHz — hard cap against Hume's limit
     const capped = merged.length > MAX_SAMPLES ? merged.slice(merged.length - MAX_SAMPLES) : merged;
 
     const wav = this.buildWav(capped);
@@ -253,11 +263,12 @@ export class SentimentOrchestrator {
     }
 
     this.pcmBuffer = [];
+    this.lastInjectedSentiment = null;
     this.client.disconnect();
     this.latestSentiment = null;
     this.usesManualAudioFeed = false;
     this.isRunning = false;
-    console.log('🎭 Sentiment orchestrator stopped');
+    console.log(`🎭 Sentiment orchestrator stopped (source=${this.config.source ?? 'caller'})`);
   }
 
   getCachedSentimentUpdate(): string | null {

@@ -1302,19 +1302,7 @@ export default function Home() {
                     ? (mixedModeInputStream ?? undefined)
                     : undefined,
                 chunkIntervalMs: 2000,
-                onSentimentUpdate: (formatted) => {
-                  if (formatted === lastInjectedSentimentRef.current) return
-                  const sendUpdate = sendContextualUpdateRef.current
-                  if (sendUpdate) {
-                    try {
-                      sendUpdate(formatted)
-                      console.log("🎭 Caller sentiment injected:", formatted)
-                      lastInjectedSentimentRef.current = formatted
-                    } catch (e) {
-                      console.error("🎭 Caller sentiment injection failed:", e)
-                    }
-                  }
-                },
+                conversationRef: sendContextualUpdateRef,
                 onError: (err) => console.error("🎭 Caller Hume error:", err),
               })
               sentimentOrchestratorRef.current.start()
@@ -1327,19 +1315,7 @@ export default function Home() {
               humeApiKey: humeKey,
               source: "agent",
               chunkIntervalMs: 2000,
-              onSentimentUpdate: (formatted) => {
-                if (formatted === lastInjectedAgentSentimentRef.current) return
-                const sendUpdate = sendContextualUpdateRef.current
-                if (sendUpdate) {
-                  try {
-                    sendUpdate(formatted)
-                    console.log("🎭 Agent sentiment injected:", formatted)
-                    lastInjectedAgentSentimentRef.current = formatted
-                  } catch (e) {
-                    console.error("🎭 Agent sentiment injection failed:", e)
-                  }
-                }
-              },
+              conversationRef: sendContextualUpdateRef,
               onError: (err) => console.error("🎭 Agent Hume error:", err),
             })
             agentSentimentOrchestratorRef.current.start()
