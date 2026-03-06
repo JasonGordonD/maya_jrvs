@@ -87,6 +87,11 @@ export class HumeSentimentClient {
     this.ws.send(JSON.stringify(payload));
   }
 
+  sendPing(): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({}));
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private handleHumeResponse(data: any): void {
     if (data.error) {

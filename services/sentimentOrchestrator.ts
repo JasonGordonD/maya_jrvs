@@ -103,11 +103,17 @@ export class SentimentOrchestrator {
 
       const chunkInterval = this.config.chunkIntervalMs ?? 2000;
       this.flushTimer = setInterval(() => this.flushPcmBuffer(), chunkInterval);
-      this.heartbeatTimer = setInterval(() => this.sendHeartbeatPing(), 30000);
 
       this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), 30000);
 
       this.isRunning = true;
+
+      this.heartbeatTimer = setInterval(() => {
+        if (this.client.isConnected()) {
+          this.client.sendPing();
+        }
+      }, 30_000);
+
       console.log(`🎭 Sentiment orchestrator started (${chunkInterval}ms WAV chunks @ ${SAMPLE_RATE}Hz)`);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
@@ -180,19 +186,6 @@ export class SentimentOrchestrator {
     const base64 = this.arrayBufferToBase64(wav);
     this.client.sendAudioChunk(base64);
     this.lastChunkSentAt = Date.now();
-  }
-
-  private sendHeartbeatPing(): void {
-    const ws = (this.client as unknown as { ws?: WebSocket | null }).ws;
-    if (ws?.readyState !== WebSocket.OPEN) return;
-
-    // Hume's browser WebSocket client does not expose protocol-level ping frames,
-    // so send an empty JSON object as an application-level keepalive.
-    try {
-      ws.send('{}');
-    } catch {
-      // Ignore transient send races if the socket closes between readyState check and send.
-    }
   }
 
   private buildWav(pcmFloat32: Float32Array): ArrayBuffer {
