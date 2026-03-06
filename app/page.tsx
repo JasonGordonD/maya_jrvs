@@ -432,11 +432,8 @@ export default function Home() {
     useState<ConversationMode>("voice")
   const [selectedMicId, setSelectedMicId] = useState<string>("")
   const [audioInputMode, setAudioInputMode] = useState<AudioInputMode>("mic")
-  const [systemAudioCaptureSupported] = useState(
-    () =>
-      typeof navigator !== "undefined" &&
-      !!navigator.mediaDevices?.getDisplayMedia
-  )
+  const [systemAudioCaptureSupported, setSystemAudioCaptureSupported] =
+    useState(false)
   const [systemAudioCaptureLive, setSystemAudioCaptureLive] = useState(false)
   const [audioModeRestartSignal, setAudioModeRestartSignal] = useState(0)
   const [newSessionSignal, setNewSessionSignal] = useState(0)
@@ -603,6 +600,13 @@ export default function Home() {
     if (!errorLogRef.current) return
     errorLogRef.current.scrollTop = errorLogRef.current.scrollHeight
   }, [errorLogEntries])
+
+  useEffect(() => {
+    setSystemAudioCaptureSupported(
+      typeof navigator !== "undefined" &&
+        !!navigator.mediaDevices?.getDisplayMedia
+    )
+  }, [])
 
   useEffect(() => {
     if (connectionStatus !== "connected" || sessionStartedAt === null) return
