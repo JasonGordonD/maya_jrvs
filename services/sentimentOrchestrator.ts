@@ -2,6 +2,7 @@ import { HumeSentimentClient, SentimentResult } from './humeSentimentClient';
 
 export interface SentimentOrchestratorConfig {
   humeApiKey: string;
+  source?: 'caller' | 'audience';
   deviceId?: string;
   inputStream?: MediaStream;
   chunkIntervalMs?: number;
@@ -226,7 +227,8 @@ export class SentimentOrchestrator {
       .map(e => `${e.name} (${e.score.toFixed(2)})`)
       .join(', ');
 
-    return `<sentiment_update>${emotionList}</sentiment_update>`;
+    const source = this.config.source ?? 'caller';
+    return `<sentiment_update source="${source}">${emotionList}</sentiment_update>`;
   }
 
   private arrayBufferToBase64(buffer: ArrayBuffer): string {

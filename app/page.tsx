@@ -1295,6 +1295,7 @@ export default function Home() {
           hasWarnedMissingHumeKeyRef.current = false
           sentimentOrchestratorRef.current = new SentimentOrchestrator({
             humeApiKey: humeKey,
+            source: "caller",
             inputStream:
               audioInputMode === "mixed"
                 ? (mixedModeInputStream ?? undefined)
@@ -1434,6 +1435,7 @@ export default function Home() {
 
       sentimentOrchestratorRef.current = new SentimentOrchestrator({
         humeApiKey: humeKey,
+        source: "caller",
         inputStream: stream,
         chunkIntervalMs: 2000,
         onSentimentUpdate: (formatted) => {
