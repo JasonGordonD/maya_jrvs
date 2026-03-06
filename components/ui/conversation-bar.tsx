@@ -131,6 +131,14 @@ export interface ConversationBarProps {
   onMixedModeMicStreamChange?: (stream: MediaStream | null) => void
 
   /**
+   * Callback when a device audio (display/system) stream is prepared or cleared.
+   * Fired in "device" and "mixed" modes. The stream is the raw getDisplayMedia
+   * audio capture before any ElevenLabs injection — safe to clone for parallel
+   * pipelines such as the agent Hume sentiment orchestrator.
+   */
+  onDeviceAudioStreamChange?: (stream: MediaStream | null) => void
+
+  /**
    * Changing this signal forces an active session disconnect
    */
   forceDisconnectSignal?: number
@@ -196,6 +204,7 @@ export const ConversationBar = React.forwardRef<
       conversationMode = "voice",
       onSystemAudioCaptureChange,
       onMixedModeMicStreamChange,
+      onDeviceAudioStreamChange,
       forceDisconnectSignal,
       newSessionSignal,
       clientTools,
@@ -264,7 +273,8 @@ export const ConversationBar = React.forwardRef<
 
       onSystemAudioCaptureChange?.(false)
       onMixedModeMicStreamChange?.(null)
-    }, [onMixedModeMicStreamChange, onSystemAudioCaptureChange, stopStream])
+      onDeviceAudioStreamChange?.(null)
+    }, [onDeviceAudioStreamChange, onMixedModeMicStreamChange, onSystemAudioCaptureChange, stopStream])
 
     const requestDisplayAudioStream = React.useCallback(async () => {
       if (!navigator.mediaDevices?.getDisplayMedia) {
@@ -340,6 +350,7 @@ export const ConversationBar = React.forwardRef<
         mediaStreamRef.current = displayStream
         onSystemAudioCaptureChange?.(true)
         onMixedModeMicStreamChange?.(null)
+        onDeviceAudioStreamChange?.(displayStream)
         return displayStream
       }
 
@@ -407,11 +418,13 @@ export const ConversationBar = React.forwardRef<
       mediaStreamRef.current = mixedStream
       onSystemAudioCaptureChange?.(true)
       onMixedModeMicStreamChange?.(sharedMixedMicStream)
+      onDeviceAudioStreamChange?.(systemStream)
 
       return mixedStream
     }, [
       audioInputMode,
       getMicConstraints,
+      onDeviceAudioStreamChange,
       onMixedModeMicStreamChange,
       onSystemAudioCaptureChange,
       requestDisplayAudioStream,

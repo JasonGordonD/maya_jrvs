@@ -477,6 +477,9 @@ export default function Home() {
   const [mobilePanelTab, setMobilePanelTab] = useState<MobilePanelTab>("tools")
   const sessionStartRef = useRef<number | null>(null)
   const sentimentOrchestratorRef = useRef<SentimentOrchestrator | null>(null)
+  const agentSentimentOrchestratorRef = useRef<SentimentOrchestrator | null>(null)
+  const agentDeviceStreamRef = useRef<MediaStream | null>(null)
+  const lastInjectedAgentSentimentRef = useRef<string | null>(null)
   const sendContextualUpdateRef = useRef<((text: string) => void) | null>(null)
   const lastInjectedSentimentRef = useRef<string | null>(null)
   const transcriptRef = useRef<HTMLDivElement>(null)
@@ -1273,7 +1276,7 @@ export default function Home() {
           setPostConnectContextUpdate(null)
         }
 
-        // Start Hume sentiment pipeline
+        // Start Hume sentiment pipelines (caller + agent — independent)
         const humeKey = process.env.NEXT_PUBLIC_HUME_API_KEY
         if (!humeKey) {
           if (!hasWarnedMissingHumeKeyRef.current) {
@@ -1282,41 +1285,69 @@ export default function Home() {
             )
             hasWarnedMissingHumeKeyRef.current = true
           }
-        } else if (!sentimentOrchestratorRef.current) {
-          const mixedModeInputStream =
-            audioInputMode === "mixed" ? mixedModeMicStreamRef.current : null
-          if (audioInputMode === "mixed" && !mixedModeInputStream) {
-            console.warn(
-              "🎭 Mixed mode mic stream unavailable at connect; skipping Hume startup to avoid wrong-stream capture"
-            )
-            return
+        } else {
+          hasWarnedMissingHumeKeyRef.current = false
+
+          // Caller pipeline (mic / mixed-mic → source="caller")
+          if (!sentimentOrchestratorRef.current) {
+            const mixedModeInputStream =
+              audioInputMode === "mixed" ? mixedModeMicStreamRef.current : null
+            if (audioInputMode === "mixed" && !mixedModeInputStream) {
+              console.warn(
+                "🎭 Mixed mode mic stream unavailable at connect; skipping caller Hume startup to avoid wrong-stream capture"
+              )
+            } else {
+              sentimentOrchestratorRef.current = new SentimentOrchestrator({
+                humeApiKey: humeKey,
+                source: "caller",
+                inputStream:
+                  audioInputMode === "mixed"
+                    ? (mixedModeInputStream ?? undefined)
+                    : undefined,
+                chunkIntervalMs: 2000,
+                onSentimentUpdate: (formatted) => {
+                  if (formatted === lastInjectedSentimentRef.current) return
+                  const sendUpdate = sendContextualUpdateRef.current
+                  if (sendUpdate) {
+                    try {
+                      sendUpdate(formatted)
+                      console.log("🎭 Caller sentiment injected:", formatted)
+                      lastInjectedSentimentRef.current = formatted
+                    } catch (e) {
+                      console.error("🎭 Caller sentiment injection failed:", e)
+                    }
+                  }
+                },
+                onError: (err) => console.error("🎭 Caller Hume error:", err),
+              })
+              sentimentOrchestratorRef.current.start()
+            }
           }
 
-          hasWarnedMissingHumeKeyRef.current = false
-          sentimentOrchestratorRef.current = new SentimentOrchestrator({
-            humeApiKey: humeKey,
-            source: "caller",
-            inputStream:
-              audioInputMode === "mixed"
-                ? (mixedModeInputStream ?? undefined)
-                : undefined,
-            chunkIntervalMs: 2000,
-            onSentimentUpdate: (formatted) => {
-              if (formatted === lastInjectedSentimentRef.current) return // dedup
-              const sendUpdate = sendContextualUpdateRef.current
-              if (sendUpdate) {
-                try {
-                  sendUpdate(formatted)
-                  console.log("🎭 Sentiment injected:", formatted)
-                  lastInjectedSentimentRef.current = formatted
-                } catch (e) {
-                  console.error("🎭 Sentiment injection failed:", e)
+          // Agent pipeline (device audio → source="agent")
+          if (!agentSentimentOrchestratorRef.current && agentDeviceStreamRef.current) {
+            agentSentimentOrchestratorRef.current = new SentimentOrchestrator({
+              humeApiKey: humeKey,
+              source: "agent",
+              inputStream: agentDeviceStreamRef.current,
+              chunkIntervalMs: 2000,
+              onSentimentUpdate: (formatted) => {
+                if (formatted === lastInjectedAgentSentimentRef.current) return
+                const sendUpdate = sendContextualUpdateRef.current
+                if (sendUpdate) {
+                  try {
+                    sendUpdate(formatted)
+                    console.log("🎭 Agent sentiment injected:", formatted)
+                    lastInjectedAgentSentimentRef.current = formatted
+                  } catch (e) {
+                    console.error("🎭 Agent sentiment injection failed:", e)
+                  }
                 }
-              }
-            },
-            onError: (err) => console.error("🎭 Hume error:", err),
-          })
-          sentimentOrchestratorRef.current.start()
+              },
+              onError: (err) => console.error("🎭 Agent Hume error:", err),
+            })
+            agentSentimentOrchestratorRef.current.start()
+          }
         }
         return
       }
@@ -1337,6 +1368,11 @@ export default function Home() {
         sentimentOrchestratorRef.current = null
         lastInjectedSentimentRef.current = null
         mixedModeMicStreamRef.current = null
+
+        agentSentimentOrchestratorRef.current?.stop()
+        agentSentimentOrchestratorRef.current = null
+        lastInjectedAgentSentimentRef.current = null
+        agentDeviceStreamRef.current = null
 
         if (restartSequencePhaseRef.current === "awaiting_disconnect") {
           restartSequencePhaseRef.current = "awaiting_reconnect"
@@ -1400,6 +1436,10 @@ export default function Home() {
     setConversationId("")
     setSystemAudioCaptureLive(false)
     mixedModeMicStreamRef.current = null
+    agentSentimentOrchestratorRef.current?.stop()
+    agentSentimentOrchestratorRef.current = null
+    agentDeviceStreamRef.current = null
+    lastInjectedAgentSentimentRef.current = null
     sessionStartRef.current = null
     setSessionDurationSeconds(0)
     setSessionStartedAt(null)
@@ -1456,6 +1496,46 @@ export default function Home() {
       sentimentOrchestratorRef.current.start()
     },
     [audioInputMode, connectionStatus]
+  )
+
+  const handleAgentDeviceStreamChange = useCallback(
+    (stream: MediaStream | null) => {
+      agentDeviceStreamRef.current = stream
+
+      if (
+        !stream ||
+        connectionStatus !== "connected" ||
+        agentSentimentOrchestratorRef.current
+      ) {
+        return
+      }
+
+      const humeKey = process.env.NEXT_PUBLIC_HUME_API_KEY
+      if (!humeKey) return
+
+      agentSentimentOrchestratorRef.current = new SentimentOrchestrator({
+        humeApiKey: humeKey,
+        source: "agent",
+        inputStream: stream,
+        chunkIntervalMs: 2000,
+        onSentimentUpdate: (formatted) => {
+          if (formatted === lastInjectedAgentSentimentRef.current) return
+          const sendUpdate = sendContextualUpdateRef.current
+          if (sendUpdate) {
+            try {
+              sendUpdate(formatted)
+              console.log("🎭 Agent sentiment injected:", formatted)
+              lastInjectedAgentSentimentRef.current = formatted
+            } catch (e) {
+              console.error("🎭 Agent sentiment injection failed:", e)
+            }
+          }
+        },
+        onError: (err) => console.error("🎭 Agent Hume error:", err),
+      })
+      agentSentimentOrchestratorRef.current.start()
+    },
+    [connectionStatus]
   )
 
   useEffect(() => {
@@ -2702,6 +2782,7 @@ export default function Home() {
                   clientTools={clientTools}
                   onSystemAudioCaptureChange={setSystemAudioCaptureLive}
                   onMixedModeMicStreamChange={handleMixedModeMicStreamChange}
+                  onDeviceAudioStreamChange={handleAgentDeviceStreamChange}
                   onConnectionStatusChange={handleConnectionStatusChange}
                   onSpeakingChange={setIsAgentSpeaking}
                   onConversationId={handleConversationIdChange}
