@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { useConversation } from "@elevenlabs/react"
+import { Input as ElevenLabsInput } from "@elevenlabs/client"
 import {
   ArrowUpIcon,
   ChevronDown,
@@ -526,40 +527,44 @@ export const ConversationBar = React.forwardRef<
           return await conversation.startSession(sessionOptions)
         }
 
-        // SDK currently supports inputDeviceId. For custom system/mixed streams,
-        // we inject the prepared stream into session initialization.
-        const originalGetUserMedia =
-          navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
-
-        const cloneInputStream = () => {
-          const clonedTracks = inputStream
-            .getAudioTracks()
-            .map((track) => track.clone())
-          if (clonedTracks.length === 0) {
+        // For custom device/mixed streams, inject at the SDK Input layer instead
+        // of overriding global navigator.mediaDevices.getUserMedia.
+        const inputCtor = ElevenLabsInput as typeof ElevenLabsInput & {
+          create: typeof ElevenLabsInput.create
+        }
+        const originalInputCreate = inputCtor.create
+        const createWithInjectedStream: typeof ElevenLabsInput.create = async (
+          config
+        ) => {
+          const input = await originalInputCreate.call(inputCtor, config)
+          const [sourceTrack] = inputStream.getAudioTracks()
+          if (!sourceTrack) {
+            await input.close()
             throw new Error("Prepared input stream has no audio tracks.")
           }
-          return new MediaStream(clonedTracks)
+
+          const streamForSdkInput = new MediaStream([sourceTrack.clone()])
+          const inputWithInternals = input as unknown as {
+            inputStream: MediaStream
+            context: AudioContext
+            analyser: AnalyserNode
+            mediaStreamSource?: MediaStreamAudioSourceNode
+          }
+
+          inputWithInternals.mediaStreamSource?.disconnect()
+          inputWithInternals.inputStream.getTracks().forEach((track) =>
+            track.stop()
+          )
+
+          const replacementSource =
+            inputWithInternals.context.createMediaStreamSource(streamForSdkInput)
+          replacementSource.connect(inputWithInternals.analyser)
+          inputWithInternals.inputStream = streamForSdkInput
+          inputWithInternals.mediaStreamSource = replacementSource
+
+          return input
         }
-
-        const injectedGetUserMedia: typeof navigator.mediaDevices.getUserMedia =
-          async (constraints?: MediaStreamConstraints) => {
-            const audioRequested =
-              constraints?.audio === undefined ? true : constraints.audio !== false
-            const videoRequested =
-              constraints?.video !== undefined && constraints.video !== false
-
-            if (!audioRequested || videoRequested) {
-              return originalGetUserMedia(constraints ?? { audio: true })
-            }
-
-            return cloneInputStream()
-          }
-
-        ;(
-          navigator.mediaDevices as MediaDevices & {
-            getUserMedia: typeof navigator.mediaDevices.getUserMedia
-          }
-        ).getUserMedia = injectedGetUserMedia
+        inputCtor.create = createWithInjectedStream
 
         try {
           const sessionOptions = {
@@ -569,11 +574,7 @@ export const ConversationBar = React.forwardRef<
           } as Parameters<typeof conversation.startSession>[0]
           return await conversation.startSession(sessionOptions)
         } finally {
-          ;(
-            navigator.mediaDevices as MediaDevices & {
-              getUserMedia: typeof navigator.mediaDevices.getUserMedia
-            }
-          ).getUserMedia = originalGetUserMedia
+          inputCtor.create = originalInputCreate
         }
       },
       [
