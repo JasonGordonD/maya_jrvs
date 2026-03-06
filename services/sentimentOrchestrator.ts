@@ -105,6 +105,8 @@ export class SentimentOrchestrator {
       this.flushTimer = setInterval(() => this.flushPcmBuffer(), chunkInterval);
       this.heartbeatTimer = setInterval(() => this.sendHeartbeatPing(), 30000);
 
+      this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), 30000);
+
       this.isRunning = true;
       console.log(`🎭 Sentiment orchestrator started (${chunkInterval}ms WAV chunks @ ${SAMPLE_RATE}Hz)`);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -152,6 +154,17 @@ export class SentimentOrchestrator {
     const capped = merged.length > MAX_SAMPLES ? merged.slice(merged.length - MAX_SAMPLES) : merged;
 
     const wav = this.buildWav(capped);
+    const base64 = this.arrayBufferToBase64(wav);
+    this.client.sendAudioChunk(base64);
+    this.lastChunkSentAt = Date.now();
+  }
+
+  private sendHeartbeat(): void {
+    if (!this.client.isConnected()) return;
+    // Hume has no native WebSocket ping frame; a half-second silence WAV is the
+    // accepted keepalive to prevent 1006 inactivity disconnections.
+    const silentSamples = new Float32Array(SAMPLE_RATE / 2);
+    const wav = this.buildWav(silentSamples);
     const base64 = this.arrayBufferToBase64(wav);
     this.client.sendAudioChunk(base64);
     this.lastChunkSentAt = Date.now();
