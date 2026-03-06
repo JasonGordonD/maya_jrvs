@@ -272,10 +272,21 @@ export const ConversationBar = React.forwardRef<
       }
 
       try {
-        const stream = await navigator.mediaDevices.getDisplayMedia({
-          audio: true,
-          // Some browsers reject audio-only display capture; request video and stop it immediately.
-          video: true,
+        const stream = await (
+          navigator.mediaDevices.getDisplayMedia as (
+            constraints: DisplayMediaStreamOptions & Record<string, unknown>
+          ) => Promise<MediaStream>
+        )({
+          video: {
+            displaySurface: "window",
+          },
+          audio: {
+            suppressLocalAudioPlayback: false,
+          } as unknown as MediaTrackConstraints,
+          preferCurrentTab: false,
+          systemAudio: "include",
+          surfaceSwitching: "include",
+          selfBrowserSurface: "exclude",
         })
 
         stream.getVideoTracks().forEach((track) => track.stop())
@@ -358,8 +369,29 @@ export const ConversationBar = React.forwardRef<
       audioContextRef.current = audioContext
 
       const destination = audioContext.createMediaStreamDestination()
-      const micSource = audioContext.createMediaStreamSource(micStream)
-      const systemSource = audioContext.createMediaStreamSource(systemStream)
+      const micTrack = micStream.getAudioTracks()[0]
+      const systemTrack = systemStream.getAudioTracks()[0]
+      if (!micTrack) {
+        stopStream(micStream)
+        stopStream(systemStream)
+        void audioContext.close()
+        audioContextRef.current = null
+        throw new Error("No microphone track available for mixed mode.")
+      }
+      if (!systemTrack) {
+        stopStream(micStream)
+        stopStream(systemStream)
+        void audioContext.close()
+        audioContextRef.current = null
+        throw new Error("No system audio track available for mixed mode.")
+      }
+
+      const micSource = audioContext.createMediaStreamSource(
+        new MediaStream([micTrack])
+      )
+      const systemSource = audioContext.createMediaStreamSource(
+        new MediaStream([systemTrack])
+      )
       mixedMicSourceNodeRef.current = micSource
       mixedSystemSourceNodeRef.current = systemSource
 
@@ -368,14 +400,6 @@ export const ConversationBar = React.forwardRef<
       void audioContext.resume()
 
       const mixedStream = destination.stream
-      const micTrack = micStream.getAudioTracks()[0]
-      if (!micTrack) {
-        stopStream(micStream)
-        stopStream(systemStream)
-        void audioContext.close()
-        audioContextRef.current = null
-        throw new Error("No microphone track available for mixed mode.")
-      }
       const sharedMixedMicStream = new MediaStream([micTrack.clone()])
       mixedMicStreamRef.current = micStream
       mixedDisplayStreamRef.current = systemStream
@@ -537,13 +561,11 @@ export const ConversationBar = React.forwardRef<
           config
         ) => {
           const input = await originalInputCreate.call(inputCtor, config)
-          const [sourceTrack] = inputStream.getAudioTracks()
-          if (!sourceTrack) {
+          if (inputStream.getAudioTracks().length === 0) {
             await input.close()
             throw new Error("Prepared input stream has no audio tracks.")
           }
 
-          const streamForSdkInput = new MediaStream([sourceTrack.clone()])
           const inputWithInternals = input as unknown as {
             inputStream: MediaStream
             context: AudioContext
@@ -557,9 +579,9 @@ export const ConversationBar = React.forwardRef<
           )
 
           const replacementSource =
-            inputWithInternals.context.createMediaStreamSource(streamForSdkInput)
+            inputWithInternals.context.createMediaStreamSource(inputStream)
           replacementSource.connect(inputWithInternals.analyser)
-          inputWithInternals.inputStream = streamForSdkInput
+          inputWithInternals.inputStream = inputStream
           inputWithInternals.mediaStreamSource = replacementSource
 
           return input
