@@ -2,7 +2,7 @@ import { HumeSentimentClient, SentimentResult } from './humeSentimentClient';
 
 export interface SentimentOrchestratorConfig {
   humeApiKey: string;
-  source?: 'caller' | 'audience';
+  source?: 'caller' | 'agent';
   deviceId?: string;
   inputStream?: MediaStream;
   chunkIntervalMs?: number;
