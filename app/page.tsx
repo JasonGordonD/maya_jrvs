@@ -1283,12 +1283,21 @@ export default function Home() {
             hasWarnedMissingHumeKeyRef.current = true
           }
         } else if (!sentimentOrchestratorRef.current) {
+          const mixedModeInputStream =
+            audioInputMode === "mixed" ? mixedModeMicStreamRef.current : null
+          if (audioInputMode === "mixed" && !mixedModeInputStream) {
+            console.warn(
+              "🎭 Mixed mode mic stream unavailable at connect; skipping Hume startup to avoid wrong-stream capture"
+            )
+            return
+          }
+
           hasWarnedMissingHumeKeyRef.current = false
           sentimentOrchestratorRef.current = new SentimentOrchestrator({
             humeApiKey: humeKey,
             inputStream:
               audioInputMode === "mixed"
-                ? (mixedModeMicStreamRef.current ?? undefined)
+                ? (mixedModeInputStream ?? undefined)
                 : undefined,
             chunkIntervalMs: 2000,
             onSentimentUpdate: (formatted) => {
@@ -1410,8 +1419,41 @@ export default function Home() {
   const handleMixedModeMicStreamChange = useCallback(
     (stream: MediaStream | null) => {
       mixedModeMicStreamRef.current = stream
+
+      if (
+        !stream ||
+        connectionStatus !== "connected" ||
+        audioInputMode !== "mixed" ||
+        sentimentOrchestratorRef.current
+      ) {
+        return
+      }
+
+      const humeKey = process.env.NEXT_PUBLIC_HUME_API_KEY
+      if (!humeKey) return
+
+      sentimentOrchestratorRef.current = new SentimentOrchestrator({
+        humeApiKey: humeKey,
+        inputStream: stream,
+        chunkIntervalMs: 2000,
+        onSentimentUpdate: (formatted) => {
+          if (formatted === lastInjectedSentimentRef.current) return
+          const sendUpdate = sendContextualUpdateRef.current
+          if (sendUpdate) {
+            try {
+              sendUpdate(formatted)
+              console.log("🎭 Sentiment injected:", formatted)
+              lastInjectedSentimentRef.current = formatted
+            } catch (e) {
+              console.error("🎭 Sentiment injection failed:", e)
+            }
+          }
+        },
+        onError: (err) => console.error("🎭 Hume error:", err),
+      })
+      sentimentOrchestratorRef.current.start()
     },
-    []
+    [audioInputMode, connectionStatus]
   )
 
   useEffect(() => {

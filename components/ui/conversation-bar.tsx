@@ -220,6 +220,11 @@ export const ConversationBar = React.forwardRef<
     const mixedMicStreamRef = React.useRef<MediaStream | null>(null)
     const mixedDisplayStreamRef = React.useRef<MediaStream | null>(null)
     const sharedMixedMicStreamRef = React.useRef<MediaStream | null>(null)
+    const mixedMicSourceNodeRef = React.useRef<MediaStreamAudioSourceNode | null>(
+      null
+    )
+    const mixedSystemSourceNodeRef =
+      React.useRef<MediaStreamAudioSourceNode | null>(null)
     const audioContextRef = React.useRef<AudioContext | null>(null)
     const previousDisconnectSignalRef = React.useRef<number | undefined>(
       forceDisconnectSignal
@@ -251,6 +256,10 @@ export const ConversationBar = React.forwardRef<
         void audioContextRef.current.close()
         audioContextRef.current = null
       }
+      mixedMicSourceNodeRef.current?.disconnect()
+      mixedSystemSourceNodeRef.current?.disconnect()
+      mixedMicSourceNodeRef.current = null
+      mixedSystemSourceNodeRef.current = null
 
       onSystemAudioCaptureChange?.(false)
       onMixedModeMicStreamChange?.(null)
@@ -350,6 +359,8 @@ export const ConversationBar = React.forwardRef<
       const destination = audioContext.createMediaStreamDestination()
       const micSource = audioContext.createMediaStreamSource(micStream)
       const systemSource = audioContext.createMediaStreamSource(systemStream)
+      mixedMicSourceNodeRef.current = micSource
+      mixedSystemSourceNodeRef.current = systemSource
 
       micSource.connect(destination)
       systemSource.connect(destination)
@@ -520,8 +531,29 @@ export const ConversationBar = React.forwardRef<
         const originalGetUserMedia =
           navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
 
+        const cloneInputStream = () => {
+          const clonedTracks = inputStream
+            .getAudioTracks()
+            .map((track) => track.clone())
+          if (clonedTracks.length === 0) {
+            throw new Error("Prepared input stream has no audio tracks.")
+          }
+          return new MediaStream(clonedTracks)
+        }
+
         const injectedGetUserMedia: typeof navigator.mediaDevices.getUserMedia =
-          async () => inputStream
+          async (constraints?: MediaStreamConstraints) => {
+            const audioRequested =
+              constraints?.audio === undefined ? true : constraints.audio !== false
+            const videoRequested =
+              constraints?.video !== undefined && constraints.video !== false
+
+            if (!audioRequested || videoRequested) {
+              return originalGetUserMedia(constraints ?? { audio: true })
+            }
+
+            return cloneInputStream()
+          }
 
         ;(
           navigator.mediaDevices as MediaDevices & {
