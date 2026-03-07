@@ -41,6 +41,10 @@ export class SentimentOrchestrator {
   private usesManualAudioFeed = false;
   // Dedup: skip injection if the sentiment string hasn't changed since last push
   private lastInjectedSentiment: string | null = null;
+  // Turn gate: queue latest sentiment; inject once on turn-end signal
+  private pendingInjection: string | null = null;
+  private lastInjectedAt = 0;
+  private static readonly TURN_GATE_FALLBACK_MS = 8000;
 
   constructor(config: SentimentOrchestratorConfig) {
     this.config = config;
@@ -50,25 +54,23 @@ export class SentimentOrchestrator {
         this.latestSentiment = result;
         const formatted = this.formatSentimentForInjection(result);
         if (formatted) {
-          // Inject via conversationRef (dedup — skip if same as last push)
+          // Queue for turn-gated injection — only inject once per turn via notifyTurnEnd()
           if (formatted !== this.lastInjectedSentiment) {
-            const sendUpdate = this.config.conversationRef?.current;
-            if (sendUpdate) {
-              try {
-                sendUpdate(formatted);
-                this.lastInjectedSentiment = formatted;
-                console.log(`🎭 Sentiment injected (${this.config.source ?? 'caller'}):`, formatted);
-              } catch (e) {
-                console.error('🎭 Sentiment injection failed:', e);
-              }
-            }
+            this.pendingInjection = formatted;
           }
           config.onSentimentUpdate?.(formatted, result);
         }
       },
       onError: config.onError,
       onConnected: () => console.log(`🎭 Hume WebSocket connected (${config.source ?? 'caller'})`),
-      onDisconnected: () => console.log(`🎭 Hume sentiment pipeline disconnected (${config.source ?? 'caller'})`),
+      onDisconnected: () => {
+        console.log(`🎭 Hume sentiment pipeline disconnected (${config.source ?? 'caller'})`);
+        // Cancel keepalive interval immediately on WebSocket close
+        if (this.heartbeatTimer) {
+          clearInterval(this.heartbeatTimer);
+          this.heartbeatTimer = null;
+        }
+      },
     });
   }
 
@@ -121,7 +123,8 @@ export class SentimentOrchestrator {
       const chunkInterval = this.config.chunkIntervalMs ?? 2000;
       this.flushTimer = setInterval(() => this.flushPcmBuffer(), chunkInterval);
 
-      this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), 30000);
+      // Keepalive: send 100ms silence every 7s when no real audio is flowing
+      this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), 7000);
 
       this.isRunning = true;
       console.log(`🎭 Sentiment orchestrator started (${chunkInterval}ms WAV chunks @ ${SAMPLE_RATE}Hz, source=${this.config.source ?? 'caller'})`);
@@ -148,8 +151,36 @@ export class SentimentOrchestrator {
     this.pcmBuffer.push(pcm);
   }
 
+  // Called by page.tsx when the agent finishes a speaking turn (primary trigger)
+  // or when the user finishes speaking (for the caller orchestrator).
+  notifyTurnEnd(): void {
+    if (!this.pendingInjection) return;
+    this.doInject(this.pendingInjection);
+    this.pendingInjection = null;
+  }
+
+  private doInject(formatted: string): void {
+    const sendUpdate = this.config.conversationRef?.current;
+    if (!sendUpdate) return;
+    try {
+      sendUpdate(formatted);
+      this.lastInjectedSentiment = formatted;
+      this.lastInjectedAt = Date.now();
+      console.log(`🎭 Sentiment injected (${this.config.source ?? 'caller'}):`, formatted);
+    } catch (e) {
+      console.error('🎭 Sentiment injection failed:', e);
+    }
+  }
+
   private flushPcmBuffer(): void {
-    this.maybeSendKeepalive();
+    // Fallback: if turn-end was never signalled, inject after 8 s of silence
+    if (
+      this.pendingInjection &&
+      Date.now() - this.lastInjectedAt >= SentimentOrchestrator.TURN_GATE_FALLBACK_MS
+    ) {
+      this.doInject(this.pendingInjection);
+      this.pendingInjection = null;
+    }
 
     if (this.pcmBuffer.length === 0) return;
     if (!this.client.isConnected()) {
@@ -177,21 +208,10 @@ export class SentimentOrchestrator {
 
   private sendHeartbeat(): void {
     if (!this.client.isConnected()) return;
-    // Hume has no native WebSocket ping frame; a half-second silence WAV is the
-    // accepted keepalive to prevent 1006 inactivity disconnections.
-    const silentSamples = new Float32Array(SAMPLE_RATE / 2);
-    const wav = this.buildWav(silentSamples);
-    const base64 = this.arrayBufferToBase64(wav);
-    this.client.sendAudioChunk(base64);
-    this.lastChunkSentAt = Date.now();
-  }
-
-  private maybeSendKeepalive(): void {
-    if (!this.client.isConnected()) return;
-    if (Date.now() - this.lastChunkSentAt < 45000) return;
-
-    // Send 0.5s of silence to prevent Hume keepalive ping timeout (1011)
-    const silentSamples = new Float32Array(SAMPLE_RATE / 2);
+    // Skip if real audio was sent in the last 7 s — no need to overlap
+    if (Date.now() - this.lastChunkSentAt < 7000) return;
+    // 100 ms of silence at 48 kHz = 4800 zero-value int16 samples (9600 bytes)
+    const silentSamples = new Float32Array(4800);
     const wav = this.buildWav(silentSamples);
     const base64 = this.arrayBufferToBase64(wav);
     this.client.sendAudioChunk(base64);
@@ -264,6 +284,8 @@ export class SentimentOrchestrator {
 
     this.pcmBuffer = [];
     this.lastInjectedSentiment = null;
+    this.pendingInjection = null;
+    this.lastInjectedAt = 0;
     this.client.disconnect();
     this.latestSentiment = null;
     this.usesManualAudioFeed = false;

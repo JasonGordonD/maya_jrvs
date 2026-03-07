@@ -2713,7 +2713,16 @@ export default function Home() {
                   onSystemAudioCaptureChange={setSystemAudioCaptureLive}
                   onMixedModeMicStreamChange={handleMixedModeMicStreamChange}
                   onConnectionStatusChange={handleConnectionStatusChange}
-                  onSpeakingChange={setIsAgentSpeaking}
+                  onSpeakingChange={(speaking: boolean) => {
+                    setIsAgentSpeaking(speaking);
+                    if (speaking) {
+                      // Agent started speaking → caller/user turn ended
+                      sentimentOrchestratorRef.current?.notifyTurnEnd();
+                    } else {
+                      // Agent stopped speaking → agent turn ended
+                      agentSentimentOrchestratorRef.current?.notifyTurnEnd();
+                    }
+                  }}
                   onConversationId={handleConversationIdChange}
                   onMessage={handleConversationMessage}
                   onSendMessage={handleUserTextMessage}
